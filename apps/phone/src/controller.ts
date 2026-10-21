@@ -66,7 +66,15 @@ export function createController(root: {
   let view: View | null = null;
   let mounted: Vm['screen'] | null = null;
 
-  const video = h('video', { playsinline: true, muted: true, autoplay: true, 'aria-hidden': 'true' });
+  // disablepictureinpicture / disableremoteplayback: keep Safari from offering PiP or AirPlay over the preview.
+  const video = h('video', {
+    playsinline: true,
+    muted: true,
+    autoplay: true,
+    disablepictureinpicture: true,
+    disableremoteplayback: true,
+    'aria-hidden': 'true',
+  });
   const canvas = h('canvas', { 'aria-hidden': 'true' });
   const frameEl = h('div', { class: 'frame' }, video, canvas);
   root.stage.append(frameEl);
@@ -120,10 +128,16 @@ export function createController(root: {
     const hidden = ['boot', 'invalid', 'config_error', 'ended'].includes(vm.screen);
     root.chip.hidden = hidden;
     root.chip.className = `chip ${vm.online ? 'chip--on' : 'chip--off'}`;
-    root.chip.textContent = vm.online ? 'Connected' : 'Offline. Reconnecting...';
+    // Rewriting identical text replaces the text node, which can make VoiceOver re-announce the status.
+    const text = vm.online ? 'Connected' : 'Offline. Reconnecting…';
+    if (root.chip.textContent !== text) root.chip.textContent = text;
   }
 
-  /** Persistent notice under the chip: camera trouble first (with a tap target), then the wake-lock note. */
+  /**
+   * Persistent notice under the chip: camera trouble first (with a tap target), then the wake-lock note.
+   * The wake-lock advice is skipped mid-Set: it cannot be acted on there, and the notice would take
+   * room from the Rep count.
+   */
   function renderNotice(): void {
     const onCameraScreen = ['paired', 'picker', 'set', 'after'].includes(vm.screen);
     const text =
@@ -131,8 +145,8 @@ export function createController(root: {
         ? 'The camera paused while the app was in the background.'
         : vm.cameraIssue === 'lost'
           ? 'The camera stopped.'
-          : vm.wakeLock === 'unavailable'
-            ? "Couldn't keep the screen awake. Turn off auto-lock so your phone doesn't sleep mid-Set."
+          : vm.wakeLock === 'unavailable' && vm.screen !== 'set'
+            ? 'Couldn’t keep the screen awake. Turn off auto-lock so your phone doesn’t sleep mid-Set.'
             : null;
     root.notice.hidden = !onCameraScreen || text === null;
     if (root.notice.hidden || text === noticeText) return;
@@ -340,9 +354,9 @@ export function createController(root: {
       watchTrack();
       applyAspect(out.result.aspect);
       engine?.start();
-      setVm({ busy: false, cameraIssue: null, notice: out.usedFallback ? "Couldn't switch cameras." : null });
+      setVm({ busy: false, cameraIssue: null, notice: out.usedFallback ? 'Couldn’t switch cameras.' : null });
     } else {
-      setVm({ busy: false, cameraIssue: 'lost', notice: "Couldn't open either camera." });
+      setVm({ busy: false, cameraIssue: 'lost', notice: 'Couldn’t open either camera.' });
     }
   }
 

@@ -7,7 +7,7 @@ function card(...children: (Node | string)[]): HTMLElement {
 }
 
 export const bootView: ViewFactory = () => {
-  const el = card(h('p', { class: 'body', role: 'status' }, 'Loading Couch Coach...'));
+  const el = card(h('p', { class: 'body', role: 'status' }, 'Loading Couch Coach…'));
   return { el, update: () => {} };
 };
 
@@ -21,7 +21,7 @@ export const invalidView: ViewFactory = () => {
 
 export const configErrorView: ViewFactory = (_vm, actions) => {
   const el = card(
-    h('h1', { class: 'h1' }, "Couldn't reach Couch Coach"),
+    h('h1', { class: 'h1' }, 'Couldn’t reach Couch Coach'),
     h('p', { class: 'body' }, 'Check your connection and try again.'),
     button('Try again', actions.reload),
   );
@@ -38,7 +38,7 @@ export const primeView: ViewFactory = (vm, actions) => {
   );
   const update = (next: typeof vm) => {
     allow.disabled = next.busy;
-    allow.textContent = next.busy ? 'Starting camera...' : 'Allow camera';
+    allow.textContent = next.busy ? 'Starting camera…' : 'Allow camera';
   };
   update(vm);
   return { el, update };
@@ -47,10 +47,10 @@ export const primeView: ViewFactory = (vm, actions) => {
 const HELP: Record<'denied' | 'unavailable' | 'insecure', { title: string; body: string }> = {
   denied: {
     title: 'Camera is off',
-    body: "Couch Coach can't see you without it. Open your browser's site settings, allow Camera, then come back.",
+    body: 'Couch Coach can’t see you without it. Open your browser’s site settings, allow Camera, then come back.',
   },
   unavailable: {
-    title: "Couldn't start the camera",
+    title: 'Couldn’t start the camera',
     body: 'Close other apps that use the camera, then try again.',
   },
   insecure: {
@@ -100,7 +100,7 @@ export const pairedView: ViewFactory = (_vm, actions) => {
       glyph('✓', 'glyph--ok glyph--hero'),
       h('h1', { class: 'h1' }, 'Paired with the TV'),
       h('p', { class: 'body' }, 'Your Session is ready.'),
-      h('p', { class: 'hint' }, 'Prop your phone upright, 2-3 m away, with your whole body in frame.'),
+      h('p', { class: 'hint' }, 'Prop your phone upright, 2–3\u00a0m away, with your whole body in frame.'),
       button('Choose Exercise', actions.goToPicker),
     ),
   );

@@ -14,14 +14,14 @@ export const pickerView: ViewFactory = (vm, actions) => {
   for (const exercise of ORDER) {
     const card = h(
       'button',
-      { type: 'button', role: 'radio', class: 'pick', onclick: () => actions.selectExercise(exercise) },
+      { type: 'button', class: 'pick', 'aria-pressed': 'false', onclick: () => actions.selectExercise(exercise) },
       h('span', { class: 'pick__name' }, EXERCISE_LABEL[exercise]),
       h('span', { class: 'pick__hint' }, HINTS[exercise]),
       h('span', { class: 'pick__check', 'aria-hidden': 'true' }, '✓'),
     );
     cards.set(exercise, card);
   }
-  const status = h('p', { class: 'hint', role: 'status' });
+  const status = h('p', { class: 'hint status-line', role: 'status' });
   const retry = button('Try loading again', actions.retryModel, 'quiet');
   const start = button('Start Set', actions.startSet);
   const flip = button('Flip camera', actions.flipCamera, 'quiet');
@@ -33,7 +33,7 @@ export const pickerView: ViewFactory = (vm, actions) => {
       'div',
       { class: 'sheet' },
       h('h1', { class: 'h2' }, 'Choose an Exercise'),
-      h('div', { class: 'picks', role: 'radiogroup', 'aria-label': 'Exercise' }, ...cards.values()),
+      h('div', { class: 'picks', role: 'group', 'aria-label': 'Exercise' }, ...cards.values()),
       status,
       retry,
       start,
@@ -41,8 +41,7 @@ export const pickerView: ViewFactory = (vm, actions) => {
         'div',
         { class: 'tools' },
         flip,
-        debug,
-        button('Export last 30 s', actions.exportFrames, 'quiet'),
+        h('span', { class: 'dev-only' }, debug, button('Export last 30\u00a0s', actions.exportFrames, 'quiet')),
       ),
     ),
   );
@@ -50,7 +49,7 @@ export const pickerView: ViewFactory = (vm, actions) => {
   const update = (next: Vm) => {
     for (const [exercise, card] of cards) {
       const selected = next.exercise === exercise;
-      card.setAttribute('aria-checked', String(selected));
+      card.setAttribute('aria-pressed', String(selected));
       card.classList.toggle('pick--on', selected);
     }
     const ready = next.modelState === 'ready';
@@ -61,9 +60,9 @@ export const pickerView: ViewFactory = (vm, actions) => {
     status.textContent = next.notice
       ? next.notice
       : next.modelState === 'loading' || next.modelState === 'idle'
-        ? 'Loading the pose model...'
+        ? 'Loading the pose model…'
         : next.modelState === 'error'
-          ? "Couldn't load the pose model. Check your connection."
+          ? 'Couldn’t load the pose model. Check your connection.'
           : next.exercise === null
             ? 'Pick an Exercise to begin.'
             : '';

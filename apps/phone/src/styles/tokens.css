@@ -6,6 +6,8 @@
   --cc-overlay: #33263c;
   --cc-track: #3d2e48;
   --cc-line: #4a3a55;
+  /* Control boundary that must stay visible on its own: 3.7:1 on --cc-bg (WCAG 1.4.11). */
+  --cc-line-strong: #7d6c8a;
   --cc-text: #fff4e8;
   --cc-text-dim: #cdbfd6;
   --cc-text-muted: #a898b4;

@@ -16,3 +16,7 @@ URL: `/?s=<sessionId>&t=<phoneToken>&m=<memberId>` (`m` optional, defaults to `u
 `prepare-assets` (runs before dev/build) copies the MediaPipe WASM into `public/mediapipe/wasm` and downloads `pose_landmarker_lite.task` into `public/models` (the app falls back to Google's public URL if the file is missing).
 
 Camera needs HTTPS (or localhost). Production builds inject a CSP meta tag (see `vite.config.ts`).
+
+## iPhone Safari polish
+
+`index.html` and `src/styles/app.css` carry the mobile-native layer: `viewport-fit=cover` plus `env(safe-area-inset-*)`, `theme-color` matching Lamplight, no tap highlight or long-press selection on controls, `touch-action: manipulation`, `overscroll-behavior: none`, a CSS-only "Rotate back to portrait" overlay in landscape, and in-flow (non-overlapping) notice and alert areas. Before/after screenshots at 390x844, 430x932 and 390x664 (Safari with toolbars) are in `docs/screenshots/`. The fake camera sees nobody, so the Rep count and Form Score in the Set screenshots are patched into the DOM for illustration only.

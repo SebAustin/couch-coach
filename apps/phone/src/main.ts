@@ -9,6 +9,10 @@ import { loadClientConfig } from './config';
 import { createController } from './controller';
 import { parseSessionParams } from './logic/session-params';
 
+if (new URLSearchParams(window.location.search).get('debug') === '1') {
+  document.documentElement.classList.add('dev-tools');
+}
+
 function el(id: string): HTMLElement {
   const found = document.getElementById(id);
   if (!found) throw new Error(`missing #${id}`);

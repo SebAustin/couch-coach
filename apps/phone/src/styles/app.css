@@ -8,6 +8,7 @@ html,
 body {
   margin: 0;
   height: 100%;
+  color-scheme: dark; /* dark scrollbars and form chrome inside the Lamplight room */
   background: var(--cc-bg);
   color: var(--cc-text);
   font-family: var(--cc-font-text);
@@ -17,12 +18,31 @@ body {
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
   font-variant-numeric: tabular-nums;
-  overscroll-behavior: none;
+  overscroll-behavior: none; /* no rubber-band or pull-to-refresh while the Member exercises */
 }
 
+/* Controls: no long-press text selection or callout, and taps fire at once (no double-tap-zoom wait). */
+button,
+summary,
+.rep-count,
+.band,
+.chip,
+.banner {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+button,
+summary {
+  touch-action: manipulation;
+}
+
+/* position: fixed + inset: 0 tracks the dynamic viewport (Safari toolbars), so no 100vh anywhere. */
 #app {
   position: fixed;
   inset: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   background: radial-gradient(900px 700px at 8% 0%, var(--cc-lamp-glow), transparent), var(--cc-bg);
 }
@@ -47,6 +67,7 @@ body {
   display: grid;
   place-items: center;
   background: var(--cc-stage);
+  pointer-events: none;
 }
 
 .frame {
@@ -70,7 +91,8 @@ body {
 #ui {
   position: relative;
   z-index: 2;
-  height: 100%;
+  flex: 1 1 0;
+  min-height: 0; /* shrinks when the notice is showing instead of being overlapped by it */
 }
 
 #ui[data-screen='paired']::before,
@@ -79,7 +101,7 @@ body {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, rgba(18, 13, 22, 0.92) 30%, rgba(18, 13, 22, 0.1) 70%);
+  background: linear-gradient(to top, rgba(18, 13, 22, 0.94) 58%, rgba(18, 13, 22, 0.1) 90%);
   pointer-events: none;
 }
 
@@ -90,10 +112,14 @@ body {
   flex-direction: column;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
+/* The notice already sits below the notch, so the screen under it must not add the inset twice. */
+#notice:not([hidden]) + #ui .screen {
+  padding-top: 0;
+}
 
 .screen--card {
-  justify-content: center;
-  padding: var(--cc-space-6);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .card-body {
@@ -102,11 +128,14 @@ body {
   gap: var(--cc-space-5);
   max-width: 480px;
   width: 100%;
-  margin: 0 auto;
+  /* margin: auto centres the card but, unlike justify-content, never clips its top when it overflows. */
+  margin: auto;
+  padding: var(--cc-space-6);
 }
 
 .screen--sheet {
-  justify-content: flex-end;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .sheet {
@@ -116,7 +145,7 @@ body {
   padding: var(--cc-space-6) var(--cc-space-5) var(--cc-space-5);
   max-width: 520px;
   width: 100%;
-  margin: 0 auto;
+  margin: auto auto 0; /* bottom-anchored (thumb zone), still scrollable on short screens */
   animation: sheet-in var(--cc-dur-enter) var(--cc-ease) both;
 }
 
@@ -135,6 +164,7 @@ body {
   line-height: 1.1;
   margin: 0;
   letter-spacing: -0.01em;
+  text-wrap: balance;
 }
 .h1 {
   font-size: 40px;
@@ -145,15 +175,20 @@ body {
 .body {
   margin: 0;
   color: var(--cc-text-dim);
+  text-wrap: pretty;
 }
+/* Hints sit over the camera preview, so they use the dim (not muted) text tone for 4.5:1 in the worst case. */
 .hint,
 .recap {
   margin: 0;
-  color: var(--cc-text-muted);
+  color: var(--cc-text-dim);
   font-size: 18px;
+  text-wrap: pretty;
+}
+.status-line {
+  min-height: 1.4em; /* the line empties when the picker is ready; keep its row so nothing below jumps */
 }
 .recap {
-  color: var(--cc-text-dim);
   font-weight: 700;
   font-size: 20px;
 }
@@ -205,24 +240,46 @@ body {
   color: var(--cc-text);
 }
 .btn--quiet {
-  background: transparent;
   color: var(--cc-text-dim);
-  box-shadow: inset 0 0 0 2px var(--cc-line);
+  background: rgba(38, 28, 45, 0.9);
+  box-shadow: inset 0 0 0 2px var(--cc-line-strong);
 }
-.btn:active:not(:disabled) {
+.btn:active:not(:disabled),
+.pick:active {
   transform: scale(0.98);
+}
+.icon-btn:active {
+  transform: scale(0.94);
 }
 .btn:disabled {
   opacity: 0.45;
   cursor: default;
 }
-.btn:focus-visible,
-.pick:focus-visible,
-.end-bar:focus-visible,
-.icon-btn:focus-visible,
-summary:focus-visible {
+:is(button, summary):focus-visible {
   outline: 3px solid var(--cc-focus-ring);
   outline-offset: 3px;
+}
+.end-bar:focus-visible {
+  outline-offset: -8px; /* the bar bleeds to the screen edge, so the ring sits inside it */
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .btn--primary:hover:not(:disabled),
+  .end-bar:hover {
+    background: var(--cc-accent-soft);
+  }
+  .btn--secondary:hover:not(:disabled) {
+    background: var(--cc-track);
+  }
+  .btn--quiet:hover:not(:disabled) {
+    background: var(--cc-raised);
+  }
+  .pick:hover:not(.pick--on) {
+    background: var(--cc-overlay);
+  }
+  .icon-btn:hover {
+    background: var(--cc-track);
+  }
 }
 
 .tools {
@@ -246,6 +303,7 @@ summary:focus-visible {
   font-weight: 700;
   color: var(--cc-accent);
   cursor: pointer;
+  list-style-position: inside;
 }
 
 /* ---- connection chip ----------------------------------------------------- */
@@ -262,6 +320,7 @@ summary:focus-visible {
   background: var(--cc-overlay);
   color: var(--cc-text);
   white-space: nowrap;
+  font-variant-numeric: normal;
 }
 .chip::before {
   content: '';
@@ -277,24 +336,27 @@ summary:focus-visible {
 }
 
 /* ---- camera / wake-lock notice ------------------------------------------- */
+/* In flow (not an overlay): it takes its own row under the chip, so it never covers the Set bar or the
+   picker heading. The sheet screens are bottom-anchored, so their buttons do not move when it appears. */
 .notice {
-  position: absolute;
-  z-index: 7;
-  top: calc(env(safe-area-inset-top) + 56px);
-  left: var(--cc-space-3);
-  right: var(--cc-space-3);
+  position: relative;
+  z-index: 3;
+  flex: none;
   display: flex;
   flex-direction: column;
   gap: var(--cc-space-2);
+  margin: calc(env(safe-area-inset-top) + 52px) max(var(--cc-space-3), env(safe-area-inset-right)) 0 max(var(--cc-space-3), env(safe-area-inset-left));
   padding: var(--cc-space-3) var(--cc-space-4);
   border-radius: var(--cc-radius-card) var(--cc-radius-chip) var(--cc-radius-card) var(--cc-radius-card);
   background: var(--cc-overlay);
   border: 2px solid var(--cc-score-ok);
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
+  line-height: 1.3;
 }
 .notice p {
   margin: 0;
+  text-wrap: pretty;
 }
 
 /* ---- exercise picker ----------------------------------------------------- */
@@ -326,6 +388,7 @@ summary:focus-visible {
   font-family: var(--cc-font-display);
   font-weight: 800;
   font-size: 28px;
+  line-height: 1.15;
 }
 .pick__hint {
   color: var(--cc-text-dim);
@@ -358,6 +421,8 @@ summary:focus-visible {
 
 /* ---- set screen ---------------------------------------------------------- */
 .screen--set {
+  overflow: hidden;
+  padding-bottom: 0; /* the End set bar owns the home-indicator inset and bleeds to the bottom edge */
   background: linear-gradient(to bottom, rgba(18, 13, 22, 0.7), transparent 28%, transparent 62%, rgba(18, 13, 22, 0.55));
 }
 .bar {
@@ -372,6 +437,7 @@ summary:focus-visible {
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
 }
 .bar__title {
+  margin: 0; /* it is an <h1> now; drop the default heading margin */
   font-family: var(--cc-font-display);
   font-weight: 800;
   font-size: 28px;
@@ -387,6 +453,8 @@ summary:focus-visible {
 }
 .icon-btn {
   appearance: none;
+  display: grid;
+  place-items: center;
   min-width: var(--cc-target);
   min-height: var(--cc-target);
   border: 0;
@@ -398,6 +466,12 @@ summary:focus-visible {
   font-size: 16px;
   cursor: pointer;
 }
+.icon-btn svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+  pointer-events: none;
+}
 .icon-btn[aria-pressed='true'] {
   background: var(--cc-accent);
   color: var(--cc-on-accent);
@@ -408,15 +482,18 @@ summary:focus-visible {
   flex-direction: column;
   align-items: center;
   gap: var(--cc-space-2);
+  min-height: 0;
   padding-top: var(--cc-space-6);
   text-shadow: 0 2px 16px rgba(0, 0, 0, 0.65);
 }
+/* Alerts open in the empty space below the Form Score band, so the Rep count never moves when they show. */
 .rep-count {
   font-family: var(--cc-font-display);
   font-weight: 800;
-  font-size: clamp(120px, 46vw, 180px);
+  /* Read from 2-3 m: 180px on a tall phone, scaled down on short viewports (Safari with toolbars). */
+  font-size: clamp(96px, min(46vw, 22dvh), 180px);
   line-height: 1;
-  will-change: transform;
+  font-variant-numeric: tabular-nums;
 }
 .center .label {
   color: var(--cc-text);
@@ -430,6 +507,7 @@ summary:focus-visible {
   font-weight: 700;
   font-size: 20px;
   text-shadow: none;
+  font-variant-numeric: tabular-nums;
 }
 .band--good {
   background: var(--cc-score-good);
@@ -447,13 +525,27 @@ summary:focus-visible {
   display: flex;
   flex-direction: column;
   gap: var(--cc-space-3);
-  margin: var(--cc-space-4) var(--cc-space-4) 0;
-  padding: var(--cc-space-4);
+  align-self: stretch;
+  margin: var(--cc-space-3) var(--cc-space-4) 0;
+  padding: var(--cc-space-3) var(--cc-space-4);
   border-radius: var(--cc-radius-card);
   background: var(--cc-overlay);
   text-shadow: none;
   font-weight: 700;
   text-align: center;
+  text-wrap: pretty;
+}
+.banner--idle {
+  /* text and action side by side: one alert is ~80px tall, so it always fits above the End set bar */
+  flex-direction: row;
+  align-items: center;
+  text-align: left;
+}
+.banner--idle .btn {
+  flex: none;
+  width: auto;
+  min-height: var(--cc-target);
+  padding-block: var(--cc-space-2);
 }
 .banner--framing {
   background: var(--cc-score-ok);
@@ -475,7 +567,7 @@ summary:focus-visible {
   width: 100%;
   min-height: 25%;
   flex: 0 0 25%;
-  padding-bottom: env(safe-area-inset-bottom);
+  padding: 0 0 env(safe-area-inset-bottom);
   background: var(--cc-accent);
   color: var(--cc-on-accent);
   font-family: var(--cc-font-display);
@@ -494,6 +586,7 @@ summary:focus-visible {
   display: flex;
   flex-direction: column;
   gap: var(--cc-space-3);
+  min-height: 168px; /* thinking and Cue states share one footprint, so the Cue does not shove the recap up */
   padding: var(--cc-space-5);
   background: var(--cc-overlay);
   border-radius: var(--cc-radius-card) var(--cc-radius-chip) var(--cc-radius-card) var(--cc-radius-card);
@@ -503,6 +596,7 @@ summary:focus-visible {
   margin: 0;
   font-size: 24px;
   line-height: 1.35;
+  text-wrap: pretty;
 }
 .cue--quiet {
   font-size: 20px;
@@ -547,10 +641,74 @@ summary:focus-visible {
   background: rgba(18, 13, 22, 0.85);
   color: var(--cc-text);
   font: 700 14px/1.3 ui-monospace, 'SF Mono', Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- short viewports (Safari with toolbars is ~664px tall on a 844px phone) --- */
+@media (max-height: 720px) {
+  .sheet {
+    gap: var(--cc-space-3);
+    padding-top: var(--cc-space-5);
+  }
+  .picks {
+    gap: var(--cc-space-2);
+  }
+  .pick {
+    min-height: 92px;
+    padding: var(--cc-space-3) var(--cc-space-5);
+  }
+  .pick__name {
+    font-size: 24px;
+  }
+  .btn--primary {
+    min-height: 64px;
+  }
+  .center {
+    padding-top: var(--cc-space-3);
+  }
+}
+
+/* ---- landscape: the Camera Phone must stay upright ------------------------ */
+.rotate {
+  display: none;
+}
+@media (orientation: landscape) and (max-height: 520px) and (pointer: coarse) {
+  .rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: var(--cc-space-2);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    text-align: center;
+    background: rgba(18, 13, 22, 0.96);
+    animation: rotate-in var(--cc-dur-enter) var(--cc-ease) both;
+  }
+  .rotate__title {
+    margin: 0;
+    font-family: var(--cc-font-display);
+    font-weight: 800;
+    font-size: 32px;
+    line-height: 1.1;
+  }
+  .rotate__hint {
+    margin: 0;
+    max-width: 28ch;
+    color: var(--cc-text-dim);
+    font-size: 18px;
+  }
+}
+@keyframes rotate-in {
+  from {
+    opacity: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sheet {
+  .sheet,
+  .rotate {
     animation: none;
   }
   .dots i {
@@ -563,4 +721,21 @@ summary:focus-visible {
   .end-bar {
     transition: none;
   }
+  .btn:active:not(:disabled),
+  .pick:active,
+  .icon-btn:active,
+  .end-bar:active {
+    transform: none;
+  }
+}
+
+/* Developer tools (FPS overlay, landmark export) only show with &debug=1 in the link. */
+.dev-only {
+  display: none;
+}
+.dev-tools .dev-only {
+  display: contents;
+}
+.dev-tools .icon-btn.dev-only {
+  display: inline-flex;
 }

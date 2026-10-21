@@ -2,8 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <!-- viewport-fit=cover paints edge to edge so env(safe-area-inset-*) is non-zero; zoom stays enabled (a11y). -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- Lamplight background (--cc-bg): colours the Safari status area and address bar. -->
     <meta name="theme-color" content="#1B1420" />
+    <meta name="color-scheme" content="dark" />
+    <!-- Only used if the page is added to the Home Screen: full-screen, light status text over the dark UI. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Couch Coach" />
+    <!-- Stop Safari turning Rep and Form Score numbers into phone-number links. -->
+    <meta name="format-detection" content="telephone=no" />
     <meta name="referrer" content="no-referrer" />
     <title>Couch Coach</title>
   </head>
@@ -14,6 +24,11 @@
       <div id="notice" class="notice" role="status" hidden></div>
       <main id="ui"></main>
       <div id="debug" class="debug" hidden aria-hidden="true"></div>
+      <!-- Shown by CSS only when a phone is held in landscape; the Camera Phone must stay upright. -->
+      <div class="rotate" role="alert">
+        <p class="rotate__title">Rotate back to portrait</p>
+        <p class="rotate__hint">Couch Coach sees your whole body best with the phone upright.</p>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
