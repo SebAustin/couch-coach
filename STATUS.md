@@ -1,6 +1,6 @@
 # STATUS (resume point)
 
-_Last updated: 2026-10-21 by the orchestrator._
+_Last updated: 2026-10-21 16:50 CDT by the orchestrator._
 
 Deadline: **Fri 2026-10-23 12:00 PT**. Plan of record: `PLAN.md` (r4).
 
@@ -18,6 +18,9 @@ Deadline: **Fri 2026-10-23 12:00 PT**. Plan of record: `PLAN.md` (r4).
 
 - TV app built (Expo 54 / react-native-tvos 0.81): ARM-only APK of 33 MB, 100 jest tests, verified on the Android TV emulator against the live API.
 - pose-reps v0.1.1: frame gate, smoothing, minRepMs, conservative faults; the real recorded set is a regression fixture (6 clean reps, 0 faults).
+
+- **Real Fire TV checkpoint passed (Oct 21 16:44 CDT):** polished APK on the user's Fire OS stick; Member "seb" → QR pairing with the iPhone → 5 squats counted (Form Score 94, shallow depth ×1) → Coach Cue with Polly audio in 1.9 s (Bedrock 1.27 s, Polly 0.30 s) → Recap with the Coach's note. Evidence: `apps/tv/docs/screenshots/firetv-real-*.png` and CloudWatch logs for session `3cb53bb7…`.
+- Security H1/H2 fixed and deployed; robustness round F1–F8 done; coach eval 24/24; CI green on all 7 jobs; README, architecture, runbook, ADRs 0005–0006, SUBMISSION/DEMO/PRODUCT_FEEDBACK/FRICTION_LOG drafted.
 
 ## Known issues
 - heels_rising fires on every squat rep in live use; probably a 2D false positive. Tune with an exported real fixture.
@@ -37,7 +40,6 @@ Deadline: **Fri 2026-10-23 12:00 PT**. Plan of record: `PLAN.md` (r4).
 
 ## Waiting on the user
 - Confirm the AWS SNS subscription email for the coach alarms.
-- Checkpoint 1: run `bash apps/tv/scripts/fire-tv-wizard.sh` (mattpocock `wizard`) to sideload onto the Fire TV and do a first live Session.
 - Checkpoint 2: film the video, upload to YouTube, submit on Devpost, decide on npm publish.
 
 ## After judging
