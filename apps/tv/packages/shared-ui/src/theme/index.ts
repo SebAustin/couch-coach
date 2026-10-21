@@ -1,4 +1,3 @@
-export * from './colors';
-export * from './spacing';
-export * from './typography';
-export * from './safeZones';
+export * from './tokens';
+export * from './scale';
+export * from './scoreBand';

@@ -1,49 +1,30 @@
+import { BricolageGrotesque_700Bold, BricolageGrotesque_800ExtraBold } from '@expo-google-fonts/bricolage-grotesque';
+import { Figtree_500Medium, Figtree_700Bold } from '@expo-google-fonts/figtree';
+import { CouchCoachApp } from '@multi-tv/shared-ui';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { AppNavigator } from '@multi-tv/shared-ui';
 import { LogBox } from 'react-native';
-import '../../packages/shared-ui/src/app/configureRemoteControl';
 
-// Suppress specific deprecation warnings that don't affect functionality
-// These warnings come from libraries using deprecated React methods
 if (__DEV__) {
-  // Suppress in LogBox
-  LogBox.ignoreLogs([
-    /findNodeHandle is deprecated/,
-    /findHostInstance_DEPRECATED is deprecated/,
-  ]);
-
-  // Also suppress at console level for warnings that slip through
-  const originalWarn = console.warn;
-  console.warn = (...args) => {
-    const message = args[0]?.toString() || '';
-    if (
-      message.includes('findNodeHandle is deprecated') ||
-      message.includes('findHostInstance_DEPRECATED is deprecated')
-    ) {
-      return;
-    }
-    originalWarn(...args);
-  };
+  // Library deprecation noise from react-tv-space-navigation; harmless.
+  LogBox.ignoreLogs([/findNodeHandle is deprecated/, /findHostInstance_DEPRECATED is deprecated/]);
 }
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
+// Keep the splash up until the Lamplight fonts are ready. If they fail, the system fonts keep the sizes.
+SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 export default function App() {
   const [loaded, error] = useFonts({
-    SpaceMono: require('./assets/fonts/SpaceMono-Regular.ttf'),
+    BricolageGrotesque_700Bold,
+    BricolageGrotesque_800ExtraBold,
+    Figtree_500Medium,
+    Figtree_700Bold,
   });
 
   useEffect(() => {
-    if (loaded || error) {
-      SplashScreen.hideAsync();
-      if (error) {
-        console.warn(`Error in loading fonts: ${error}`);
-      }
-    }
+    if (loaded || error) SplashScreen.hideAsync().catch(() => undefined);
   }, [loaded, error]);
 
-  return <AppNavigator fontsLoaded={loaded || !!error} />;
+  return <CouchCoachApp fontsLoaded={loaded || !!error} />;
 }

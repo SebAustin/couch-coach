@@ -22,3 +22,7 @@ yarn-error.log
 .DS_Store
 
 
+
+# Yarn state
+.yarn/install-state.gz
+coverage/

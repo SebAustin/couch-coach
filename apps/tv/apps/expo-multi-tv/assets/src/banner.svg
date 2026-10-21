@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <defs>
+    <radialGradient id="lamp" cx="6%" cy="0%" r="80%">
+      <stop offset="0" stop-color="#B9A2FF" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#B9A2FF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="640" height="360" fill="#1B1420"/>
+  <rect width="640" height="360" fill="url(#lamp)"/>
+  <g transform="translate(36 40) scale(0.27)">
+    <g stroke="#D9CCFF" stroke-width="44" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <circle cx="540" cy="285" r="78"/><path d="M540 380 L520 560"/><path d="M530 430 L690 470 L790 400"/><path d="M530 430 L420 500 L330 430"/><path d="M520 560 L650 620 L640 770"/><path d="M520 560 L420 650 L440 770"/>
+    </g>
+    <g fill="#FFF4E8" stroke="#1B1420" stroke-width="12"><circle cx="530" cy="430" r="26"/><circle cx="520" cy="560" r="26"/><circle cx="650" cy="620" r="26"/><circle cx="420" cy="650" r="26"/></g>
+  </g>
+  <text x="330" y="190" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="800" font-size="64" fill="#FFF4E8">Couch</text>
+  <text x="330" y="254" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="800" font-size="64" fill="#B9A2FF">Coach</text>
+  <text x="332" y="296" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="500" font-size="22" fill="#CDBFD6">Fitness for the couch</text>
+</svg>

@@ -10,7 +10,9 @@ const KEY_CODE_MAPPING: Record<number, SupportedKeys> = {
   19: SupportedKeys.Up,
   66: SupportedKeys.Enter,
   23: SupportedKeys.Enter,
-  67: SupportedKeys.Back,
+  // 4 (KEYCODE_BACK) is handled by BackHandler; 67 (KEYCODE_DEL) must stay free for the TV keyboard.
+  82: SupportedKeys.Debug, // KEYCODE_MENU
+  165: SupportedKeys.Debug, // KEYCODE_INFO
   85: SupportedKeys.PlayPause,
   89: SupportedKeys.Rewind,
   90: SupportedKeys.FastForward,
@@ -26,20 +28,17 @@ class RemoteControlManager implements RemoteControlManagerInterface {
   private handleKeyDown = (keyEvent: { keyCode: number }): void => {
     const mappedKey = KEY_CODE_MAPPING[keyEvent.keyCode];
     if (mappedKey) {
-      console.log(`Key pressed: ${mappedKey}`);
       this.eventEmitter.emit('keyDown', mappedKey);
     }
   };
 
   addKeydownListener = (listener: (event: SupportedKeys) => void): ((event: SupportedKeys) => void) => {
     this.eventEmitter.on('keyDown', listener);
-    console.log('Key listener added');
     return listener;
   };
 
   removeKeydownListener = (listener: (event: SupportedKeys) => void): void => {
     this.eventEmitter.off('keyDown', listener);
-    console.log('Key listener removed');
   };
 
   emitKeyDown = (key: SupportedKeys): void => {

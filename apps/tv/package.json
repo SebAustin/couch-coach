@@ -1,5 +1,5 @@
 {
-  "name": "react-native-multi-tv-app-sample",
+  "name": "couch-coach-tv",
   "version": "1.0.0",
   "private": true,
   "workspaces": [
@@ -15,24 +15,21 @@
     "ws": "^8.21.0"
   },
   "scripts": {
+    "sync": "node scripts/sync-shared.mjs",
+    "sync:check": "node scripts/sync-shared.mjs --check",
     "dev": "yarn workspace @multi-tv/expo-multi-tv start",
-    "dev:android": "yarn workspace @multi-tv/expo-multi-tv android",
-    "dev:ios": "yarn workspace @multi-tv/expo-multi-tv ios",
     "dev:web": "yarn workspace @multi-tv/expo-multi-tv web",
-    "dev:vega": "yarn workspace @multi-tv/vega start",
-    "build:all": "yarn workspaces foreach -pt run build",
-    "build:vega": "yarn workspace @multi-tv/vega run build",
-    "build:vega:debug": "yarn workspace @multi-tv/vega run build:debug",
-    "test:all": "yarn workspaces foreach -pt run test",
-    "lint:all": "yarn workspaces foreach -pt run lint",
-    "typecheck": "yarn workspaces foreach -pt run typecheck",
-    "clean:all": "yarn workspaces foreach run clean && rm -rf node_modules",
-    "bootstrap": "yarn install && yarn build:all",
-    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "prepare": "husky"
+    "dev:android": "yarn workspace @multi-tv/expo-multi-tv android",
+    "test": "yarn workspace @multi-tv/expo-multi-tv test",
+    "typecheck": "yarn workspace @multi-tv/expo-multi-tv typecheck",
+    "build:apk": "bash scripts/build-apk.sh",
+    "install:apk": "bash scripts/install-apk.sh",
+    "icons": "bash scripts/generate-icons.sh",
+    "emulator": "bash scripts/emulator.sh",
+    "publish:synthetic": "node scripts/publish-synthetic.mjs"
   },
   "devDependencies": {
-    "husky": "^9.1.6",
-    "prettier": "^3.3.3"
+    "prettier": "^3.3.3",
+    "puppeteer-core": "^25.15.0"
   }
 }
