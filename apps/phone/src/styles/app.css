@@ -434,6 +434,10 @@ summary:focus-visible {
   font-weight: 700;
   text-align: center;
 }
+.banner--framing {
+  background: var(--cc-score-ok);
+  color: var(--cc-on-score);
+}
 .paused {
   position: absolute;
   inset: 0 0 25%;

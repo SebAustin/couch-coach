@@ -25,3 +25,8 @@ Collected from the build agents with exact error text. Only real friction hit du
 - CloudFront first deploy took 338 s; `minimumProtocolVersion ... has no effect without a custom 'certificate'` warning.
 - `aws-sdk-client-mock`: `DynamoDBDocumentClient.from({})` throws `Cannot destructure property 'protocol' of 'config'`.
 - Positive: `aws-cdk-lib/aws-appsync` `EventApi` L2 (2.274) worked with no Cfn fallback.
+
+## First live phone test (Oct 21, iPhone/desktop camera, user)
+- Root cause of "camera doesn't seem to work": only the upper body was in frame (shoulders 100%, hips/knees/ankles 0%), so pose-reps ignored every frame and the phone gave no feedback. Fixed with a debounced "Step back" framing banner. Product lesson, not platform friction.
+- Live results once framed: squats counted (10/10), jumping jacks counted (10), Haiku Cue arrived after set end. heels_rising flagged on every squat rep, a likely false positive from 2D heel tracking.
+- Coach quality: one Cue praised "feet staying wider today" while feet_not_wide was flagged 8 times; needs an eval or stricter prompt.

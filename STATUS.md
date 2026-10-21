@@ -14,6 +14,14 @@ Deadline: **Fri 2026-10-23 12:00 PT**. Plan of record: `PLAN.md` (r4).
 
 - AWS stack `CouchCoachStack` deployed (us-east-1); phone app live at https://d36nqce57j19po.cloudfront.net; smoke test: POST /coach → Cue 0.9 s warm / 2.5 s cold (templated Cue).
 
+- First live phone test (Oct 21 12:40): squats + jumping jacks counted on the real camera, real Haiku Cues with memory. Framing banner added after the "camera doesn't work" report (cause: legs out of frame).
+
+## Known issues
+- heels_rising fires on every squat rep in live use; probably a 2D false positive. Tune with an exported real fixture.
+- Pose rate on the phone varied 7.5–15 fps in the live test (SC2 target is ≥ 15).
+- SC1 p95 ≈ 330–350 ms vs the 300 ms target (cloud round trip).
+- Coach can contradict the fault data ("feet staying wider" with 8 feet_not_wide).
+
 ## In progress
 - Android toolchain + TV app.
 
@@ -25,7 +33,6 @@ Deadline: **Fri 2026-10-23 12:00 PT**. Plan of record: `PLAN.md` (r4).
 - Step 1 parallel build: pose-reps, infra + services, protocol + events-client, Android toolchain.
 
 ## Waiting on the user
-- Submit the Anthropic use-case form in the Bedrock console (Haiku access); until then Cues are templated. No redeploy needed once it lands.
 - Confirm the AWS SNS subscription email for the coach alarms.
 - Checkpoint 1 (Oct 22): enable ADB debugging on the Fire TV and give its IP.
 - Checkpoint 2: film the video, upload to YouTube, submit on Devpost, decide on npm publish.

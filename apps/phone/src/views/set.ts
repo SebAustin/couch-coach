@@ -4,6 +4,10 @@ import { BAND_LABEL, button, EXERCISE_LABEL, prefersReducedMotion, scoreBand } f
 
 const BUMP = [{ transform: 'scale(1)' }, { transform: 'scale(1.18)', offset: 0.4 }, { transform: 'scale(1)' }];
 const BUMP_MS = 220;
+const FRAMING_TEXT = {
+  step_back: 'Step back: I need to see you from head to feet to count Reps.',
+  no_person: "I can't see you. Step into the camera's view.",
+} as const;
 
 export const setView: ViewFactory = (vm, actions) => {
   const title = h('span', { class: 'bar__title' });
@@ -20,6 +24,7 @@ export const setView: ViewFactory = (vm, actions) => {
     h('span', { class: 'banner__text' }),
     button('Keep going', actions.keepGoing, 'secondary'),
   );
+  const framingBanner = h('div', { class: 'banner banner--framing', role: 'alert', hidden: true }, h('span', { class: 'banner__text' }));
   const paused = h(
     'div',
     { class: 'paused', hidden: true },
@@ -32,7 +37,7 @@ export const setView: ViewFactory = (vm, actions) => {
     'section',
     { class: 'screen screen--set' },
     h('header', { class: 'bar' }, h('div', { class: 'bar__id' }, title, setNo), h('div', { class: 'bar__tools' }, debug, pause)),
-    h('div', { class: 'center' }, count, countLabel, band, banner),
+    h('div', { class: 'center' }, count, countLabel, band, framingBanner, banner),
     paused,
     announce,
     end,
@@ -54,6 +59,8 @@ export const setView: ViewFactory = (vm, actions) => {
     pause.textContent = next.paused ? '▶' : '⏸';
     pause.setAttribute('aria-label', next.paused ? 'Resume' : 'Pause');
     paused.hidden = !next.paused;
+    framingBanner.hidden = next.framing === null || next.paused;
+    if (next.framing) framingBanner.querySelector('.banner__text')!.textContent = FRAMING_TEXT[next.framing];
     banner.hidden = next.idleSecondsLeft === null || next.paused;
     if (next.idleSecondsLeft !== null) {
       banner.querySelector('.banner__text')!.textContent = `No movement. Ending Set in ${next.idleSecondsLeft}...`;

@@ -6,6 +6,7 @@ import { clear, h } from './dom';
 import { createEngine, type DetectedPose, type Engine } from './engine';
 import { createFrameBatcher } from './logic/frame-batcher';
 import { createFrameRing } from './logic/frame-ring';
+import { createFramingTracker } from './logic/framing';
 import { idleStatus } from './logic/idle';
 import { createSetRunner, type SetRunner } from './logic/set-runner';
 import { createSessionNet, type SessionNet } from './net';
@@ -43,6 +44,7 @@ const INITIAL_VM: Vm = {
   coach: null,
   lastSet: null,
   debugOn: false,
+  framing: null,
   notice: null,
 };
 
@@ -64,6 +66,7 @@ export function createController(root: {
   const overlay: SkeletonOverlay = createOverlay(canvas);
   const wakeLock = createWakeLock();
   const ring = createFrameRing(EXPORT_WINDOW_MS);
+  const framing = createFramingTracker();
 
   let session: SessionInfo | null = null;
   let net: SessionNet | null = null;
@@ -153,7 +156,14 @@ export function createController(root: {
 
   // ---- frames -------------------------------------------------------------
 
+  function trackFraming(detected: DetectedPose | null): void {
+    if (!runner || !vm.exercise || vm.paused) return;
+    const issue = framing.push(detected?.pose ?? null, vm.exercise, detected?.t ?? Date.now());
+    if (issue !== vm.framing) setVm({ framing: issue });
+  }
+
   function onPose(detected: DetectedPose | null): void {
+    trackFraming(detected);
     if (!detected) return;
     const frame = encodeFrame(detected.pose, detected.t);
     ring.add(frame);
@@ -241,6 +251,7 @@ export function createController(root: {
     setCounter += 1;
     const now = Date.now();
     try {
+      framing.reset();
       runner = createSetRunner({ exercise, setIndex: setCounter, counter: createCounter(exercise, aspect ? { aspectRatio: aspect } : {}), startedAtMs: now });
     } catch (err) {
       console.error('cannot start counter', err);
@@ -261,6 +272,7 @@ export function createController(root: {
       idleSecondsLeft: null,
       coach: null,
       lastSet: null,
+      framing: null,
       notice: null,
     });
     clearInterval(idleTimer);

@@ -1,4 +1,5 @@
 import type { Exercise, SetSummary } from '@couch-coach/protocol';
+import type { FramingIssue } from '../logic/framing';
 
 export type Screen =
   | 'boot'
@@ -34,6 +35,8 @@ export interface Vm {
   coach: CoachView | null;
   lastSet: SetSummary | null;
   debugOn: boolean;
+  /** Set when the Member is out of frame long enough that Reps can't be counted. */
+  framing: FramingIssue | null;
   /** One-line message for the picker (e.g. an Exercise that cannot start). */
   notice: string | null;
 }
