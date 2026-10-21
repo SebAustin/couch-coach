@@ -20,6 +20,21 @@ describe('liveReducer', () => {
     expect(s.aspect).toBe(DEFAULT_ASPECT);
   });
 
+  it.each([
+    ['set_start', { type: 'set_start', exercise: 'squat', t: 1 }],
+    ['rep', { type: 'rep', exercise: 'squat', index: 1, score: 100, faults: [], t: 1 }],
+    ['set_end', { type: 'set_end', setIndex: 1, t: 1, set: { exercise: 'squat', reps: 1, score: 100, faults: {}, durationMs: 1 } }],
+    ['control', { type: 'control', action: 'pause', t: 1 }],
+  ] as const)('treats a %s event as proof a phone joined even without hello', (_name, event) => {
+    expect(run([phone(event as PhoneEvent)]).hasPhone).toBe(true);
+  });
+
+  it('treats the first PoseBatch as proof a phone joined', () => {
+    expect(liveReducer(initialLiveState, { kind: 'pose_seen' }).hasPhone).toBe(true);
+    const joined = run([phone({ type: 'hello', memberId: 'm', t: 1 })]);
+    expect(liveReducer(joined, { kind: 'pose_seen' })).toBe(joined);
+  });
+
   it('uses the aspect from hello when present', () => {
     const s = run([phone({ type: 'hello', memberId: 'm1', aspect: 0.75, t: 1 })]);
     expect(s.aspect).toBe(0.75);

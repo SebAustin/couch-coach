@@ -68,6 +68,8 @@ export type LiveAction =
   | { kind: 'coach_timeout' }
   | { kind: 'dismiss_cue' }
   | { kind: 'end_requested' }
+  /** The first valid PoseBatch arrived: a phone is streaming even if its `hello` was missed. */
+  | { kind: 'pose_seen' }
   /** A new Session started: forget everything from the previous one. */
   | { kind: 'reset' };
 
@@ -154,8 +156,13 @@ function applyCoach(state: LiveState, message: CoachMessage): LiveState {
 
 export function liveReducer(state: LiveState, action: LiveAction): LiveState {
   switch (action.kind) {
-    case 'phone':
-      return applyPhoneEvent(state, action.event);
+    case 'phone': {
+      // Any phone event proves a phone has joined, so a missed `hello` cannot strand the TV on Pair.
+      const next = applyPhoneEvent(state, action.event);
+      return next.hasPhone ? next : { ...next, hasPhone: true };
+    }
+    case 'pose_seen':
+      return state.hasPhone ? state : { ...state, hasPhone: true };
     case 'coach':
       return applyCoach(state, action.message);
     case 'coach_timeout':

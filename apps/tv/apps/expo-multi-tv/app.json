@@ -12,6 +12,7 @@
     "plugins": [
       "./plugins/withKotlinJvmTarget",
       "./plugins/withKeyEvent",
+      "./plugins/withAbiFilters",
       [
         "@react-native-tvos/config-tv",
         {

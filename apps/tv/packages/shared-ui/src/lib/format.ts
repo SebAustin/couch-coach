@@ -37,3 +37,22 @@ export function newestSeenIndex(members: readonly { lastSeenAt?: number }[]): nu
 export function expiresAtMs(expiresAt: number): number {
   return expiresAt < 1e11 ? expiresAt * 1000 : expiresAt;
 }
+
+const HOUR_MS = 3_600_000;
+/** Above this, a countdown is noise: say how long the code is valid instead. */
+export const COUNTDOWN_BELOW_MS = 10 * MINUTE_MS;
+
+/**
+ * Pairing code expiry copy: "Code valid for 2 hours" / "Code valid for 45 minutes" above 10 minutes,
+ * "Code expires in 9:58" (m:ss) at or under 10 minutes.
+ */
+export function expiryLabel(remainingMs: number): string {
+  if (remainingMs > COUNTDOWN_BELOW_MS) {
+    if (remainingMs >= 90 * MINUTE_MS) {
+      const hours = Math.round(remainingMs / HOUR_MS);
+      return `Code valid for ${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+    }
+    return `Code valid for ${Math.round(remainingMs / MINUTE_MS)} minutes`;
+  }
+  return `Code expires in ${formatCountdown(remainingMs)}`;
+}

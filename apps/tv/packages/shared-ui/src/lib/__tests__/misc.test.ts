@@ -62,10 +62,28 @@ describe('smoothing', () => {
   });
 });
 
-import { expiresAtMs } from '../format';
+import { expiresAtMs, expiryLabel } from '../format';
 describe('expiresAtMs', () => {
   it('accepts epoch seconds or milliseconds', () => {
     expect(expiresAtMs(1_800_000_000)).toBe(1_800_000_000_000);
     expect(expiresAtMs(1_800_000_000_000)).toBe(1_800_000_000_000);
+  });
+});
+
+describe('expiryLabel', () => {
+  const MIN = 60_000;
+  it('says how long the code is valid when there is plenty of time', () => {
+    expect(expiryLabel(119 * MIN + 54_000)).toBe('Code valid for 2 hours');
+    expect(expiryLabel(90 * MIN)).toBe('Code valid for 2 hours');
+    expect(expiryLabel(60 * MIN * 5)).toBe('Code valid for 5 hours');
+  });
+  it('uses minutes between 10 and 90 minutes', () => {
+    expect(expiryLabel(75 * MIN)).toBe('Code valid for 75 minutes');
+    expect(expiryLabel(10 * MIN + 1000)).toBe('Code valid for 10 minutes');
+  });
+  it('switches to m:ss at 10 minutes and under', () => {
+    expect(expiryLabel(10 * MIN)).toBe('Code expires in 10:00');
+    expect(expiryLabel(9 * MIN + 58_000)).toBe('Code expires in 9:58');
+    expect(expiryLabel(5_000)).toBe('Code expires in 0:05');
   });
 });

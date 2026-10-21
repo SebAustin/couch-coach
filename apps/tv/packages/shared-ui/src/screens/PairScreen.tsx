@@ -8,7 +8,7 @@ import { CheckIcon } from '../components/ui/Icons';
 import { Screen } from '../components/ui/Screen';
 import { Txt } from '../components/ui/Txt';
 import { useNow } from '../hooks/useNow';
-import { expiresAtMs, formatCountdown } from '../lib/format';
+import { expiresAtMs, expiryLabel } from '../lib/format';
 import { color, radius, s } from '../theme';
 import type { Member, SessionResponse } from '../vendor/protocol';
 
@@ -32,7 +32,7 @@ const HURRY_MS = 60_000;
 const STEPS = [
   "Point your phone's camera at this code.",
   'Tap the link and allow camera access.',
-  'Prop your phone upright, 2-3 m away, so your whole body fits in the frame.',
+  'Prop your phone upright, 2\u20133 m away, so you fill the frame from head to feet.',
 ] as const;
 
 /** Pair: a large QR for the phone, three steps, the expiry countdown, and "New code" / "Change Member". */
@@ -173,8 +173,9 @@ function Expiry({ ready, remaining }: { ready: boolean; remaining: number }) {
   if (remaining <= 0) return <Txt variant="bodyBold" color={color.scoreOk}>Code expired</Txt>;
   const hurry = remaining < HURRY_MS;
   return (
-    <Txt variant="bodyBold" color={hurry ? color.scoreOk : color.textDim} accessibilityLabel={`Code expires in ${formatCountdown(remaining)}`}>
-      {hurry ? 'Hurry: ' : ''}Code expires in {formatCountdown(remaining)}
+    <Txt variant="bodyBold" color={hurry ? color.scoreOk : color.textDim} accessibilityLabel={expiryLabel(remaining)}>
+      {hurry ? 'Hurry: ' : ''}
+      {expiryLabel(remaining)}
     </Txt>
   );
 }

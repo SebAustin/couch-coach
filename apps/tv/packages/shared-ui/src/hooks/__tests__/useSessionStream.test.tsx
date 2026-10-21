@@ -78,6 +78,15 @@ describe('useSessionStream', () => {
     expect(out.current!.telemetry.current.receiveLatencyMs).toBe(134);
   });
 
+  it('marks the phone as joined on the first valid PoseBatch, even if hello was missed', () => {
+    const { out, fake } = mount(SESSION);
+    expect(out.current!.state.hasPhone).toBe(false);
+    act(() => fake.emit(channels(SESSION).pose, { type: 'pose', frames: [] })); // invalid: min 1 frame
+    expect(out.current!.state.hasPhone).toBe(false);
+    act(() => fake.emit(channels(SESSION).pose, { type: 'pose', frames: [encodeFrame(pose, 12345)] }));
+    expect(out.current!.state.hasPhone).toBe(true);
+  });
+
   it('reports a null latency when the phone clock is not epoch ms', () => {
     const { out, fake } = mount(SESSION);
     act(() => fake.emit(channels(SESSION).pose, { type: 'pose', frames: [encodeFrame(pose, 12345)] }));

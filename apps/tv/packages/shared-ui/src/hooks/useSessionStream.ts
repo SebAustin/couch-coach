@@ -103,6 +103,7 @@ export function useSessionStream(sessionId: string | null, options: SessionStrea
       const newest = parsed.data.frames[parsed.data.frames.length - 1]!;
       bufferRef.current.pushBatch(parsed.data, arrival);
       const t = telemetry.current;
+      if (t.poseBatches === 0) dispatch({ kind: 'pose_seen' }); // first valid batch: the phone is there
       t.lastPoseAt = arrival;
       t.lastEventAt = arrival;
       t.poseBatches += 1;
