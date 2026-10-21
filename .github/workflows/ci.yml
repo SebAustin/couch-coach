@@ -1,0 +1,35 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [packages/protocol, packages/events-client, services/session, services/coach, infra, apps/phone]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: SebAustin/pose-reps
+          path: _pose-reps
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check package exists
+        id: exists
+        run: test -f "${{ matrix.dir }}/package.json" && echo "yes=1" >> "$GITHUB_OUTPUT" || echo "skipping ${{ matrix.dir }}"
+      - name: Link pose-reps next to the repo
+        if: steps.exists.outputs.yes
+        run: ln -s "$GITHUB_WORKSPACE/_pose-reps" "$GITHUB_WORKSPACE/../pose-reps"
+      - name: Install, typecheck, test
+        if: steps.exists.outputs.yes
+        working-directory: ${{ matrix.dir }}
+        run: |
+          npm ci
+          npm run typecheck --if-present
+          npm test --if-present

@@ -39,7 +39,7 @@ Fault ids and weights:
 |---|---|---|
 | `GET /members` | — | `{ members: Member[] }` |
 | `POST /members` | `{ name }` | `Member` (201) |
-| `POST /session` | `{ memberId }` | `SessionResponse` (201); `phoneUrl` = `<phone CloudFront URL>/?s=<sessionId>&t=<phoneToken>` |
+| `POST /session` | `{ memberId }` | `SessionResponse` (201); `phoneUrl` = `<phone CloudFront URL>/?s=<sessionId>&t=<phoneToken>`; the TV appends `&m=<memberId>` to the QR |
 | `POST /coach` | `CoachRequest` | `202 { ok: true }`; the Cue arrives later on the coach channel. 401 on bad token, 429 over the 30-call cap. |
 
 `phoneToken` = `base64url(sessionId.exp)` + `.` + `base64url(HMAC-SHA256(secret, sessionId.exp))`, valid 2 h.
@@ -53,7 +53,7 @@ Fault ids and weights:
 ## Client config
 CDK writes `ClientConfig` (see protocol) to:
 - `config.json` at the root of the phone web bucket, which the phone fetches at startup;
-- `apps/tv/apps/expo-multi-tv/src/config.generated.ts` via `infra/scripts/write-client-config.ts`, which reads `infra/cdk-outputs.json` (gitignored values are fine to commit: the API key is a public client key scoped to `/cc/*` and expires 2026-12-15).
+- `infra/client-config.json` via `infra/scripts/write-client-config.ts` (from `infra/cdk-outputs.json`). Committing it is fine: the API key is a public client key scoped to `/cc/*` that expires 2026-12-15. The TV's `apps/tv/scripts/sync-shared.mjs` turns it into `config.generated.ts`.
 
 ## Ownership (parallel build, Oct 21)
 | Workstream | Owns | Must not edit |
