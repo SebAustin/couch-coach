@@ -17,17 +17,38 @@ export interface Landmark {
 
 const round = (n: number) => Math.round(n * PRECISION) / PRECISION;
 
-/** One camera frame on the wire: capture time (ms) and flattened [x, y, visibility] * 33. */
+const MOTION_PRECISION = 100;
+
+/**
+ * Live rep-counter state for a frame, so the TV can draw a depth gauge.
+ * `depth` 0 = standing, 1 = thighs about parallel; a rep counts once depth reaches `target`.
+ * For jumping jacks `depth` is how open the arms/feet are.
+ */
+export const Motion = z.object({
+  depth: z.number().min(0).max(1),
+  phase: z.enum(['calibrating', 'rest', 'active', 'lost']),
+  target: z.number().min(0).max(1),
+});
+export type Motion = z.infer<typeof Motion>;
+
+/** One camera frame on the wire: capture time (ms), flattened [x, y, visibility] * 33, optional live motion. */
 export const PoseFrame = z.object({
   t: z.number(),
   k: z.array(z.number()).length(KEYPOINT_COUNT * VALUES_PER_KEYPOINT),
+  // Optional and forgiving: older phones omit it, and a malformed value must not drop the whole batch.
+  motion: Motion.optional().catch(undefined),
 });
 export type PoseFrame = z.infer<typeof PoseFrame>;
 
-export function encodeFrame(pose: readonly Landmark[], t: number): PoseFrame {
+const roundMotion = (n: number) => Math.round(n * MOTION_PRECISION) / MOTION_PRECISION;
+
+export function encodeFrame(pose: readonly Landmark[], t: number, motion?: Motion): PoseFrame {
   return {
     t,
     k: pose.flatMap((p) => [round(p.x), round(p.y), round(p.visibility)]),
+    ...(motion
+      ? { motion: { depth: roundMotion(motion.depth), phase: motion.phase, target: roundMotion(motion.target) } }
+      : {}),
   };
 }
 

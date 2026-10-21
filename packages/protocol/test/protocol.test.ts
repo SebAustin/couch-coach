@@ -37,6 +37,29 @@ describe('pose frames', () => {
   });
 });
 
+describe('live motion on pose frames', () => {
+  it('round-trips depth, phase and target, rounded to 0.01', () => {
+    const frame = encodeFrame(pose, 7, { depth: 0.4267, phase: 'active', target: 0.4 });
+    expect(PoseBatch.parse({ type: 'pose', frames: [frame] }).frames[0]!.motion).toEqual({
+      depth: 0.43,
+      phase: 'active',
+      target: 0.4,
+    });
+  });
+
+  it('keeps frames without motion (older phones)', () => {
+    const parsed = PoseBatch.parse({ type: 'pose', frames: [encodeFrame(pose, 1)] });
+    expect(parsed.frames[0]!.motion).toBeUndefined();
+  });
+
+  it('drops a malformed motion value but keeps the pose batch', () => {
+    const frame = { ...encodeFrame(pose, 1), motion: { depth: 2, phase: 'flying', target: 0.4 } };
+    const parsed = PoseBatch.safeParse({ type: 'pose', frames: [frame] });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.frames[0]!.motion).toBeUndefined();
+  });
+});
+
 describe('phone events', () => {
   it('parses a rep event with faults', () => {
     const e = PhoneEvent.parse({
