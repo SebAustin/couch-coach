@@ -34,3 +34,10 @@ Collected from the build agents with exact error text. Only real friction hit du
 ## Second live test: recorded set (Oct 21, iPhone + Safari)
 - iPhone Safari held in portrait returned a **landscape 16:9** camera frame although the page asked for `width: {ideal: 720}, height: {ideal: 1280}`. The body filled ~33% of frame height → noisy landmarks (knee angles of 0–40° on collapsed frames), reps over-counted (12 vs a true 9–10), and every fault was a false positive. Mitigation: retry with `aspectRatio: {exact: 9/16}` when the screen is portrait; whether iOS honors `exact` aspectRatio is still unverified on device.
 - Tuning workflow that worked: a cloud-side listener records the Set straight from AppSync Events, so no file has to travel off the phone. A replay harness then prints per-rep measurements, and the owner supplies ground truth.
+
+## Security round (Oct 21)
+- AppSync Events namespace handler propagation: right after `cdk deploy` added an `onSubscribe` handler rejecting wildcard channels, the first probe subscribing to `/cc/*` still returned `subscribe_success`; every later probe returned `Unauthorized`. No documented propagation window, so the deploy pipeline can't assert the rule right away.
+- With Cues moved to an IAM-publish-only namespace, the TV screenshot tooling can no longer fake a Cue with the API key (by design), so Cue-card screenshots need a real coach call.
+
+## CI (Oct 21)
+- `file:`-linked TypeScript source packages: consumers resolve the linked package's imports (`zod`) from the package's real folder, so CI must `npm ci` the linked package too (`error TS2307: Cannot find module 'zod'` in every consumer job; green locally because the folder had node_modules).

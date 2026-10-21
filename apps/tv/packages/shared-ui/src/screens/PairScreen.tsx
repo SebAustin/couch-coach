@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { memo, useEffect, useRef } from 'react';
+import { Animated, Easing, StyleSheet, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { DefaultFocus, SpatialNavigationNode, SpatialNavigationRoot, type SpatialNavigationNodeRef } from 'react-tv-space-navigation';
 import { pairingUrl, shortUrlHint } from '../api/client';
@@ -8,6 +8,7 @@ import { CheckIcon } from '../components/ui/Icons';
 import { Screen } from '../components/ui/Screen';
 import { Txt } from '../components/ui/Txt';
 import { useNow } from '../hooks/useNow';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import { expiresAtMs, expiryLabel } from '../lib/format';
 import { color, radius, s } from '../theme';
 import type { Member, SessionResponse } from '../vendor/protocol';
@@ -52,7 +53,7 @@ export function PairScreen({ member, view, phoneConnected, onNewCode, onChangeMe
   return (
     <Screen>
       <SpatialNavigationRoot isActive>
-      <Txt variant="label" color={color.textMuted}>
+      <Txt variant="label" color={color.textMuted} numberOfLines={1}>
         Pairing for {member.name}
       </Txt>
       <Txt variant="display" accessibilityRole="header">
@@ -106,7 +107,11 @@ export function PairScreen({ member, view, phoneConnected, onNewCode, onChangeMe
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
-function QrCard({ view, expired, url }: { view: PairView; expired: boolean; url: string }) {
+/**
+ * Memoised: the screen re-renders every second for the countdown, and without this the QR matrix was rebuilt and
+ * redrawn once a second on a modest ARM stick for nothing (its props only change on a new code or on expiry).
+ */
+const QrCard = memo(function QrCard({ view, expired, url }: { view: PairView; expired: boolean; url: string }) {
   return (
     <View
       style={[styles.qrCard, { width: s(QR_CARD), height: s(QR_CARD), borderRadius: s(radius.card), padding: s(56) }]}
@@ -142,11 +147,30 @@ function QrCard({ view, expired, url }: { view: PairView; expired: boolean; url:
       )}
     </View>
   );
+});
+
+/** The "waiting" dot: a native-driven opacity loop (it used to re-render the whole row every 800 ms). Static when reduced. */
+function PulseDot() {
+  const reduceMotion = useReducedMotion();
+  const opacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (reduceMotion) {
+      opacity.setValue(1);
+      return undefined;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 0.4, duration: 800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity, reduceMotion]);
+  return <Animated.View style={{ width: s(20), height: s(20), borderRadius: s(10), backgroundColor: color.accent, opacity }} />;
 }
 
 function Status({ phoneConnected }: { phoneConnected: boolean }) {
-  const pulse = useNow(800);
-  const dotOn = Math.floor(pulse / 800) % 2 === 0;
   return (
     <View style={[styles.step, { gap: s(16) }]} accessibilityLiveRegion="polite">
       {phoneConnected ? (
@@ -158,7 +182,7 @@ function Status({ phoneConnected }: { phoneConnected: boolean }) {
         </>
       ) : (
         <>
-          <View style={{ width: s(20), height: s(20), borderRadius: s(10), backgroundColor: color.accent, opacity: dotOn ? 1 : 0.4 }} />
+          <PulseDot />
           <Txt variant="bodyBold" color={color.textDim}>
             Waiting for your phone...
           </Txt>

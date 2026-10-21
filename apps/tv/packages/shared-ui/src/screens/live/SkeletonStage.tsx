@@ -67,6 +67,7 @@ export function SkeletonStage({ buffer, width, height, fault, dimmed, onNoPoseCh
   useEffect(() => {
     let frame = 0;
     let last = 0;
+    let lastFlash = -1; // never equal to a real opacity, so the first frame writes all three fault layers
     // react-native-svg's web build expects setNativeProps({ style: props }); native takes the props directly.
     const set = (key: string, props: object) =>
       handles.current[key]?.setNativeProps?.(Platform.OS === 'web' ? { style: props } : props);
@@ -91,9 +92,14 @@ export function SkeletonStage({ buffer, width, height, fault, dimmed, onNoPoseCh
       });
       if (next.headVisible !== prev.headVisible) set('head', { opacity: next.headVisible ? 1 : 0.25 });
       lastPaths.current = next;
-      set('faultHalo', { opacity: 0.35 * flash });
-      set('faultBones', { opacity: flash });
-      set('faultJointRing', { opacity: flash });
+      // The fault layers only change while a Fault is flashing (about 1.6 s per Rep): skip three native prop
+      // writes per frame the rest of the time.
+      if (flash !== lastFlash) {
+        lastFlash = flash;
+        set('faultHalo', { opacity: 0.35 * flash });
+        set('faultBones', { opacity: flash });
+        set('faultJointRing', { opacity: flash });
+      }
 
       // "We can't see you": every landmark below 0.5 for 2 s.
       const lost = allLowVisibility(pose);

@@ -12,12 +12,17 @@ export interface TxtProps extends TextProps {
   align?: TextStyle['textAlign'];
 }
 
-/** Text in the Lamplight type scale. Numbers always use tabular figures so counters don't jitter. */
+/**
+ * Text in the Lamplight type scale. Numbers always use tabular figures so counters don't jitter. Every size is
+ * already scaled to the screen by `s()`, so the OS font scale is ignored (it would double-scale and push the
+ * HUD and Cue card past their boxes); callers can still opt back in with `allowFontScaling`.
+ */
 export function Txt({ variant = 'body', color = palette.text, upper, align, style, children, ...rest }: TxtProps) {
   const t = type[variant];
   const letterSpacing = 'letterSpacing' in t ? t.letterSpacing : undefined;
   return (
     <Text
+      allowFontScaling={false}
       {...rest}
       style={[
         {

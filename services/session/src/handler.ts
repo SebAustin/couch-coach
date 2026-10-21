@@ -25,7 +25,9 @@ const env = () => ({
   phoneBaseUrl: process.env.PHONE_BASE_URL!.replace(/\/+$/, ''),
 });
 
-async function listMembers(table: string): Promise<Member[]> {
+/** Members flagged `hidden` (test and demo-prep data) stay in the table, so their coach memory survives,
+ * but the TV doesn't list them. They still count toward MAX_MEMBERS. */
+async function listMembers(table: string, includeHidden = true): Promise<Member[]> {
   const out = await ddb.send(
     new QueryCommand({
       TableName: table,
@@ -35,7 +37,9 @@ async function listMembers(table: string): Promise<Member[]> {
       Limit: MAX_MEMBERS + 1,
     }),
   );
-  return (out.Items ?? []).map((i) => ({
+  return (out.Items ?? [])
+    .filter((i) => includeHidden || i.hidden !== true)
+    .map((i) => ({
     memberId: String(i.memberId),
     name: String(i.name),
     ...(typeof i.lastSeenAt === 'number' ? { lastSeenAt: i.lastSeenAt } : {}),
@@ -118,7 +122,9 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
   try {
     switch (event.routeKey) {
       case 'GET /members':
-        return json(200, { members: await listMembers(env().table) });
+        return json(200, {
+          members: await listMembers(env().table, event.queryStringParameters?.includeHidden === '1'),
+        });
       case 'POST /members':
         return await createMember(event);
       case 'POST /session':

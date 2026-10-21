@@ -30,7 +30,8 @@ export const color = {
 export const space = [0, 4, 8, 12, 16, 24, 32, 48, 64, 96] as const;
 export const radius = { chip: 14, button: 22, card: 32, stage: 40, pill: 999 } as const;
 export const safe = { x: 96, y: 54 } as const;
-export const motion = { focus: 150, bump: 220, enter: 320 } as const;
+/** Durations in ms. `screen` and `exit` are the fade for a whole screen / a leaving card; `press` is the select dip. */
+export const motion = { focus: 150, bump: 220, enter: 320, screen: 220, exit: 160, press: 100, fadeReduced: 120 } as const;
 
 /** Design resolution the spec is written against. */
 export const DESIGN_WIDTH = 1920;
@@ -53,5 +54,8 @@ export const type = {
   bodyL: { fontSize: 34, lineHeight: 48, fontFamily: fontFamily.text },
   body: { fontSize: 30, lineHeight: 42, fontFamily: fontFamily.text },
   bodyBold: { fontSize: 30, lineHeight: 42, fontFamily: fontFamily.textBold },
+  /** Floor of the scale (26): only for long free text (a 300+ character Cue) and one-line dense rows. */
+  bodyS: { fontSize: 26, lineHeight: 36, fontFamily: fontFamily.text },
+  bodySBold: { fontSize: 26, lineHeight: 36, fontFamily: fontFamily.textBold },
   label: { fontSize: 26, lineHeight: 34, fontFamily: fontFamily.textBold, letterSpacing: 1.04 },
 } as const;

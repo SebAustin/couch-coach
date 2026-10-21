@@ -1,7 +1,7 @@
 import React from 'react';
 import { View } from 'react-native';
 import { DefaultFocus, SpatialNavigationNode } from 'react-tv-space-navigation';
-import { s } from '../../theme';
+import { color, s } from '../../theme';
 import { Button } from './Button';
 import { Modal } from './Modal';
 import { Txt } from './Txt';
@@ -24,7 +24,7 @@ export function ConfirmDialog({ title, body, keepLabel, confirmLabel, onKeep, on
         {title}
       </Txt>
       {body ? (
-        <Txt variant="bodyL" color="#CDBFD6" style={{ marginTop: s(16) }}>
+        <Txt variant="bodyL" color={color.textDim} style={{ marginTop: s(16) }}>
           {body}
         </Txt>
       ) : null}

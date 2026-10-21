@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Easing, StyleSheet, TextInput, View } from 'react-native';
 import {
   DefaultFocus,
   SpatialNavigationNode,
@@ -15,16 +15,20 @@ import { Modal } from '../components/ui/Modal';
 import { Screen } from '../components/ui/Screen';
 import { Txt } from '../components/ui/Txt';
 import { useNow } from '../hooks/useNow';
+import { useReducedMotion } from '../hooks/useReducedMotion';
+import { glyphCount, initialOf, memberLayout } from '../lib/fit';
 import { lastSeenLabel, newestSeenIndex } from '../lib/format';
 import { color, radius, s } from '../theme';
 import type { Member } from '../vendor/protocol';
 
-const TILE = { width: 384, height: 300 } as const;
+/** Full tiles (up to 7 Members + Add = 2 rows) and compact tiles (up to 11 + Add = 3 rows). Both are 4 per row. */
+const FULL = { width: 384, height: 300 } as const;
+const COMPACT = { width: 384, height: 184 } as const;
 const GAP = 32;
 const PER_ROW = 4;
-/** Two rows of four: seven Members plus "Add member". A household is a handful of people. */
-const MAX_MEMBERS = PER_ROW * 2 - 1;
 const RETRY_MS = 10_000;
+/** A name longer than this steps down from 44 to 36 and may use two lines (an unbreakable 40-character name still fits). */
+const LONG_NAME_GLYPHS = 12;
 
 type Load = { status: 'loading' } | { status: 'error' } | { status: 'ready'; members: Member[] };
 
@@ -72,11 +76,15 @@ export function MembersScreen({ api, onPick }: Props) {
     <Screen>
       <SpatialNavigationRoot isActive={!adding}>
         <Header load={load} />
-        {load.status === 'loading' && <LoadingTiles />}
-        {load.status === 'error' && <ErrorCard onRetry={() => setRetryTick((n) => n + 1)} />}
-        {load.status === 'ready' && (
-          <Grid members={load.members} now={now} onPick={onPick} onAdd={() => setAdding(true)} />
-        )}
+        {/* The content zone takes the rest of the screen and centres what is in it, so a short row of tiles
+            sits at the optical middle instead of hugging the title with an empty bottom half. */}
+        <View style={[styles.zone, { paddingBottom: s(48) }]}>
+          {load.status === 'loading' && <LoadingTiles />}
+          {load.status === 'error' && <ErrorCard onRetry={() => setRetryTick((n) => n + 1)} />}
+          {load.status === 'ready' && (
+            <Grid members={load.members} now={now} onPick={onPick} onAdd={() => setAdding(true)} />
+          )}
+        </View>
       </SpatialNavigationRoot>
       {adding && <AddMemberModal onCancel={() => setAdding(false)} onSave={saveMember} />}
     </Screen>
@@ -86,7 +94,7 @@ export function MembersScreen({ api, onPick }: Props) {
 function Header({ load }: { load: Load }) {
   const first = load.status === 'ready' && load.members.length === 0;
   return (
-    <View style={{ marginBottom: s(40) }}>
+    <View style={{ marginBottom: s(32) }}>
       <Txt variant="label" color={color.textMuted}>
         Couch Coach
       </Txt>
@@ -103,10 +111,12 @@ function Header({ load }: { load: Load }) {
 }
 
 function Grid({ members, now, onPick, onAdd }: { members: Member[]; now: number; onPick: (m: Member) => void; onAdd: () => void }) {
-  const shown = useMemo(
-    () => [...members].sort((a, b) => (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0)).slice(0, MAX_MEMBERS),
-    [members],
-  );
+  const [focusRow, setFocusRow] = useState(0);
+  const sorted = useMemo(() => [...members].sort((a, b) => (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0)), [members]);
+  const layout = memberLayout(sorted.length);
+  const shown = useMemo(() => sorted.slice(0, layout.shown), [sorted, layout.shown]);
+  const size = layout.compact ? COMPACT : FULL;
+
   // Focus order is left to right, top to bottom, "Add member" last. Start on the newest Member, else Add.
   const items: (Member | null)[] = [...shown, null];
   const startIndex = shown.length === 0 ? 0 : newestSeenIndex(shown);
@@ -114,48 +124,94 @@ function Grid({ members, now, onPick, onAdd }: { members: Member[]; now: number;
   const rows = Array.from({ length: Math.ceil(items.length / PER_ROW) }, (_, r) => items.slice(r * PER_ROW, (r + 1) * PER_ROW));
 
   return (
-    <SpatialNavigationNode orientation="vertical">
-      <View style={{ gap: s(GAP) }}>
-        {rows.map((row, r) => (
-          <SpatialNavigationNode key={r} orientation="horizontal">
-            <View style={{ flexDirection: 'row', gap: s(GAP) }}>
-              {row.map((member, c) => {
-                const index = r * PER_ROW + c;
-                const tile = member ? (
-                  <MemberTile key={member.memberId} member={member} now={now} onSelect={() => onPick(member)} />
-                ) : (
-                  <AddTile key="add" primary={shown.length === 0} onSelect={onAdd} />
-                );
-                return index === initial ? <DefaultFocus key={tile.key}>{tile}</DefaultFocus> : tile;
-              })}
-            </View>
-          </SpatialNavigationNode>
-        ))}
-      </View>
-    </SpatialNavigationNode>
+    <View>
+      {/* alignInGrid: Down/Up keeps the column (Alex stays above Alex's column) instead of jumping to the last-focused tile. */}
+      <SpatialNavigationNode orientation="vertical" alignInGrid>
+        <View style={{ gap: s(GAP) }}>
+          {rows.map((row, r) => (
+            // The row holding focus is drawn above the rows below it, so the focus glow is not cut by the next row's tiles.
+            <SpatialNavigationNode key={r} orientation="horizontal">
+              <View style={{ flexDirection: 'row', gap: s(GAP), zIndex: r === focusRow ? 2 : 0 }}>
+                {row.map((member, c) => {
+                  const index = r * PER_ROW + c;
+                  const onFocus = () => setFocusRow(r);
+                  const tile = member ? (
+                    <MemberTile
+                      key={member.memberId}
+                      member={member}
+                      now={now}
+                      compact={layout.compact}
+                      size={size}
+                      onFocus={onFocus}
+                      onSelect={() => onPick(member)}
+                    />
+                  ) : (
+                    <AddTile key="add" primary={shown.length === 0} compact={layout.compact} size={size} onFocus={onFocus} onSelect={onAdd} />
+                  );
+                  return index === initial ? <DefaultFocus key={tile.key}>{tile}</DefaultFocus> : tile;
+                })}
+              </View>
+            </SpatialNavigationNode>
+          ))}
+        </View>
+      </SpatialNavigationNode>
+      {layout.hidden > 0 && (
+        <Txt variant="body" color={color.textMuted} style={{ marginTop: s(24) }}>
+          Showing your {layout.shown} most recent Members
+        </Txt>
+      )}
+    </View>
   );
 }
 
-function MemberTile({ member, now, onSelect }: { member: Member; now: number; onSelect: () => void }) {
+interface TileProps {
+  compact: boolean;
+  size: { width: number; height: number };
+  onFocus: () => void;
+  onSelect: () => void;
+}
+
+function MemberTile({ member, now, compact, size, onFocus, onSelect }: TileProps & { member: Member; now: number }) {
   const caption = lastSeenLabel(member.lastSeenAt, now);
+  const long = glyphCount(member.name) > LONG_NAME_GLYPHS;
+  const box = { width: s(size.width), height: s(size.height), borderRadius: s(radius.card) };
+  const avatar = compact ? 72 : 96;
   return (
     <Focusable
       onSelect={onSelect}
+      onFocus={onFocus}
       focusScale={1.06}
       cornerRadius={radius.card}
       accessibilityLabel={`${member.name}, ${caption.toLowerCase()}`}
     >
-      <View style={[styles.tile, { width: s(TILE.width), height: s(TILE.height), borderRadius: s(radius.card), padding: s(32) }]}>
-        <View style={[styles.avatar, { width: s(96), height: s(96), borderRadius: s(48) }]}>
-          <Txt variant="display" style={{ fontSize: s(56), lineHeight: s(68) }}>
-            {member.name.charAt(0).toUpperCase()}
+      <View
+        style={[
+          styles.tile,
+          compact ? styles.tileCompact : styles.tileFull,
+          box,
+          { padding: s(compact ? 24 : 32), gap: s(compact ? 20 : 0) },
+        ]}
+      >
+        <View style={[styles.avatar, { width: s(avatar), height: s(avatar), borderRadius: s(avatar / 2) }]}>
+          <Txt variant="display" style={{ fontSize: s(compact ? 40 : 56), lineHeight: s(compact ? 52 : 68) }}>
+            {initialOf(member.name)}
           </Txt>
         </View>
-        <View>
-          <Txt variant="h2" numberOfLines={1}>
-            {member.name}
-          </Txt>
-          <Txt variant="body" color={color.textMuted}>
+        <View style={compact ? styles.nameCompact : undefined}>
+          {compact ? (
+            <Txt variant="bodyBold" numberOfLines={2}>
+              {member.name}
+            </Txt>
+          ) : (
+            <Txt
+              variant="h2"
+              numberOfLines={long ? 2 : 1}
+              style={long ? { fontSize: s(36), lineHeight: s(44) } : undefined}
+            >
+              {member.name}
+            </Txt>
+          )}
+          <Txt variant="bodyS" color={color.textMuted} numberOfLines={1}>
             {caption}
           </Txt>
         </View>
@@ -164,39 +220,59 @@ function MemberTile({ member, now, onSelect }: { member: Member; now: number; on
   );
 }
 
-function AddTile({ primary, onSelect }: { primary: boolean; onSelect: () => void }) {
+function AddTile({ primary, compact, size, onFocus, onSelect }: TileProps & { primary: boolean }) {
   return (
-    <Focusable onSelect={onSelect} focusScale={1.06} cornerRadius={radius.card} accessibilityLabel="Add member">
+    <Focusable onSelect={onSelect} onFocus={onFocus} focusScale={1.06} cornerRadius={radius.card} accessibilityLabel="Add member">
       <View
         style={[
           styles.tile,
           styles.addTile,
           {
-            width: s(TILE.width),
-            height: s(TILE.height),
+            width: s(size.width),
+            height: s(size.height),
             borderRadius: s(radius.card),
-            padding: s(32),
+            padding: s(compact ? 24 : 32),
             borderWidth: s(3),
             borderColor: primary ? color.accent : color.textMuted,
             backgroundColor: primary ? color.raised : 'transparent',
+            flexDirection: compact ? 'row' : 'column',
+            gap: s(16),
           },
         ]}
       >
-        <PlusIcon size={s(72)} color={primary ? color.accent : color.textMuted} />
-        <Txt variant="h2">Add member</Txt>
+        <PlusIcon size={s(compact ? 56 : 72)} color={primary ? color.accent : color.textMuted} />
+        <Txt variant={compact ? 'bodyBold' : 'h2'}>Add member</Txt>
       </View>
     </Focusable>
   );
 }
 
+/** Four placeholder tiles breathing together (one animated node, native driver); still under reduced motion. */
 function LoadingTiles() {
+  const reduceMotion = useReducedMotion();
+  const pulse = useRef(new Animated.Value(0.5)).current;
+  useEffect(() => {
+    if (reduceMotion) {
+      pulse.setValue(0.5);
+      return undefined;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.5, duration: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse, reduceMotion]);
+
   return (
     <View>
-      <View style={{ flexDirection: 'row', gap: s(GAP), opacity: 0.5 }}>
+      <Animated.View style={{ flexDirection: 'row', gap: s(GAP), opacity: pulse }}>
         {[0, 1, 2, 3].map((i) => (
-          <View key={i} style={{ width: s(TILE.width), height: s(TILE.height), borderRadius: s(radius.card), backgroundColor: color.raised }} />
+          <View key={i} style={{ width: s(FULL.width), height: s(FULL.height), borderRadius: s(radius.card), backgroundColor: color.raised }} />
         ))}
-      </View>
+      </Animated.View>
       <Txt variant="body" color={color.textMuted} style={{ marginTop: s(24) }} accessibilityLiveRegion="polite">
         Loading Members...
       </Txt>
@@ -316,8 +392,12 @@ function NameField({ value, onChange, onSubmit }: { value: string; onChange: (v:
 }
 
 const styles = StyleSheet.create({
-  tile: { backgroundColor: color.raised, justifyContent: 'space-between' },
-  addTile: { alignItems: 'center', justifyContent: 'center', borderStyle: 'dashed', gap: 16 },
+  zone: { flex: 1, justifyContent: 'center' },
+  tile: { backgroundColor: color.raised },
+  tileFull: { justifyContent: 'space-between' },
+  tileCompact: { flexDirection: 'row', alignItems: 'center' },
+  nameCompact: { flex: 1 },
+  addTile: { alignItems: 'center', justifyContent: 'center', borderStyle: 'dashed' },
   avatar: { backgroundColor: color.overlay, alignItems: 'center', justifyContent: 'center' },
   field: { backgroundColor: color.overlay, justifyContent: 'center' },
   input: { color: color.text, fontFamily: 'Figtree_500Medium', padding: 0 },

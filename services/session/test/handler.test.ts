@@ -40,6 +40,21 @@ describe('GET /members', () => {
     expect(bodyOf(res)).toEqual({ members: [{ memberId: 'm1', name: 'Sam', lastSeenAt: 5 }, { memberId: 'm2', name: 'Alex' }] });
     expect(ddbMock.commandCalls(QueryCommand)[0]!.args[0].input.IndexName).toBe('byHousehold');
   });
+
+  it('leaves out hidden members (test and demo-prep data) unless includeHidden=1 is asked for', async () => {
+    ddbMock.on(QueryCommand).resolves({
+      Items: [
+        { memberId: 'm1', name: 'Sam' },
+        { memberId: 'm9', name: 'E2E Replay', hidden: true },
+      ],
+    });
+
+    const visible = await call('GET /members');
+    const all = await handler({ routeKey: 'GET /members', queryStringParameters: { includeHidden: '1' } } as never);
+
+    expect(bodyOf(visible).members).toEqual([{ memberId: 'm1', name: 'Sam' }]);
+    expect(bodyOf(all).members.map((m: { memberId: string }) => m.memberId)).toEqual(['m1', 'm9']);
+  });
 });
 
 describe('POST /members', () => {

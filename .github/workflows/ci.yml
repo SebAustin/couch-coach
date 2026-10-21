@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        dir: [packages/protocol, packages/events-client, services/session, services/coach, infra, apps/phone]
+        dir: [packages/protocol, packages/events-client, services/session, services/coach, infra, apps/phone, scripts]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -26,6 +26,12 @@ jobs:
       - name: Link pose-reps next to the repo
         if: steps.exists.outputs.yes
         run: ln -s "$GITHUB_WORKSPACE/_pose-reps" "$GITHUB_WORKSPACE/../pose-reps"
+      - name: Install the shared file-linked packages
+        # Consumers link packages/* with file: symlinks, so TypeScript resolves their imports (zod)
+        # from the package's own folder, which needs its own node_modules.
+        if: steps.exists.outputs.yes
+        run: |
+          for p in packages/protocol packages/events-client; do (cd "$p" && npm ci); done
       - name: Install, typecheck, test
         if: steps.exists.outputs.yes
         working-directory: ${{ matrix.dir }}

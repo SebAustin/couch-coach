@@ -13,9 +13,11 @@
  *   --wait <seconds>     pause after `hello` so you can attach/open the TV (default 15; 0 to go straight on)
  *   --exercise <id>      squat | jumping_jack (default squat)
  *   --reps <n>           Reps in the Set (default 5)
+ *   --rep-seconds <s>    seconds per Rep (default 2.4; use 0.2 to reach 100+ Reps quickly for stress screenshots)
  *   --sets <n>           Sets to play (default 1)
- *   --faults <ids>       comma list of Fault ids put on every 2nd Rep (default knees_caving)
- *   --real-coach         call POST /coach (Bedrock + Polly) instead of publishing a canned Cue
+ *   --faults <ids>       comma list of Fault ids put on every 2nd Rep (default knees_caving; "" for none)
+ *   --every-rep          put the Faults on every Rep, not every 2nd (stress: Form Score 0 with all six Faults)
+ *   --real-coach        call POST /coach (Bedrock + Polly) instead of publishing a canned Cue
  *   --end                finish with control end_session (what the phone does on Finish Session)
  *   --end-delay <s>      wait this long after the Cue before ending (default 4)
  *   --stall <seconds>    stop sending poses for N seconds mid-Set (exercises "Lost your phone")
@@ -35,7 +37,7 @@ const cfg = JSON.parse(readFileSync(configPath, 'utf8'));
 
 const FPS = Number(args.fps ?? 15);
 const FRAMES_PER_BATCH = 3;
-const REP_SECONDS = 2.4;
+const REP_SECONDS = Number(args['rep-seconds'] ?? 2.4);
 const FAULT_WEIGHTS = {
   shallow_depth: 30, knees_caving: 25, torso_lean: 20, heels_rising: 15, arms_not_overhead: 30, feet_not_wide: 30,
 };
@@ -187,7 +189,7 @@ async function main() {
     const repAcks = [];
     const startedAt = now();
     for (let rep = 1; rep <= reps; rep += 1) {
-      const repFaults = exercise === 'squat' && rep % 2 === 0 ? faultIds : [];
+      const repFaults = exercise === 'squat' && (args['every-rep'] || rep % 2 === 0) ? faultIds : [];
       await streamPoses(events, channels, exercise, REP_SECONDS, repFaults, rep, rep === Math.ceil(reps / 2) ? Number(args.stall ?? 0) : 0);
       const score = scoreFor(repFaults);
       repScores.push(score);

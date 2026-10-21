@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Animated, StyleSheet, View } from 'react-native';
 import { SpatialNavigationNode, SpatialNavigationRoot, type SpatialNavigationNodeRef } from 'react-tv-space-navigation';
 import RemoteControlManager from '../../app/remote-control/RemoteControlManager';
 import { SupportedKeys } from '../../app/remote-control/SupportedKeys';
@@ -8,13 +8,15 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { FocusVisibilityContext } from '../../components/ui/FocusVisibility';
 import { LampGlow } from '../../components/ui/LampGlow';
 import { Txt } from '../../components/ui/Txt';
+import { useFadeIn } from '../../hooks/useFadeIn';
 import { useNow } from '../../hooks/useNow';
+import { useRetainedValue } from '../../hooks/useRetainedValue';
 import type { SessionStream } from '../../hooks/useSessionStream';
 import { deriveConnection, reconnectTick } from '../../lib/connection';
 import { setRecapLine, runningScore } from '../../lib/liveState';
 import { fitContain } from '../../lib/skeletonPaths';
 import { useBackHandler } from '../../navigation/backStack';
-import { color, radius, s, safe } from '../../theme';
+import { color, motion, radius, s, safe } from '../../theme';
 import type { Member } from '../../vendor/protocol';
 import { ConnectionPill } from './ConnectionPill';
 import { CueCard } from './CueCard';
@@ -25,6 +27,8 @@ import { SkeletonStage, type FaultFlash, type RenderStats } from './SkeletonStag
 const STAGE_WIDTH = 1344;
 const STAGE_REGION = { x: 96, y: 54, width: 1200, height: 972 } as const;
 const TICK_MS = 500;
+/** The Cue card stays mounted this long after it is dismissed so its exit animation can play. */
+const CUE_EXIT_HOLD_MS = motion.exit + 40;
 
 interface Props {
   member: Member;
@@ -52,6 +56,8 @@ export function LiveScreen({ member, sessionId, stream, onEnded, onNewCode }: Pr
   const downSince = useRef<number | null>(null);
 
   const cueVisible = state.coach.status !== 'none';
+  const cue = useRetainedValue(state.coach.status !== 'none' ? state.coach : null, CUE_EXIT_HOLD_MS);
+  const fade = useFadeIn();
   const score = runningScore(state);
 
   // --- connection health ------------------------------------------------------------------
@@ -157,7 +163,7 @@ export function LiveScreen({ member, sessionId, stream, onEnded, onNewCode }: Pr
 
   return (
     <FocusVisibilityContext.Provider value={focusShown}>
-      <View style={styles.root}>
+      <Animated.View style={[styles.root, { opacity: fade }]}>
         <View style={[styles.stage, { width: s(STAGE_WIDTH) }]}>
           <LampGlow />
         </View>
@@ -194,13 +200,14 @@ export function LiveScreen({ member, sessionId, stream, onEnded, onNewCode }: Pr
                   onEnd={guarded(() => setConfirmOpen(true))}
                 />
               )}
-              {cueVisible && state.coach.status !== 'none' && (
+              {cue.value && (
                 <View style={[styles.cueSlot, { left: s(safe.x), bottom: s(safe.y), width: s(STAGE_REGION.width) }]}>
                   <CueCard
-                    coach={state.coach}
+                    coach={cue.value}
                     recapLine={setRecapLine(lastSet)}
                     onDismiss={guarded(dismissCue)}
                     replayRef={replayRef}
+                    leaving={cue.leaving}
                   />
                 </View>
               )}
@@ -237,7 +244,7 @@ export function LiveScreen({ member, sessionId, stream, onEnded, onNewCode }: Pr
             onConfirm={endFromTv}
           />
         )}
-      </View>
+      </Animated.View>
     </FocusVisibilityContext.Provider>
   );
 }

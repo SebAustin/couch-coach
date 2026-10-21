@@ -13,6 +13,7 @@ the video player and the sample screens were removed. We target Fire OS only (si
 | `docs/screenshots/tv-01-members.png` | `tv-04-pair.png` | `tv-07-live-fault.png`, `tv-10-live-cue.png` | `tv-13-recap.png` |
 
 Screenshots named `tv-*` come from the Android TV emulator (real APK, real API). `web-*` come from the Expo web target.
+`break-*` are worst-case states from the web target (see `scripts/break-screenshots.mjs`).
 
 ## Install on a real Fire TV (guided)
 
@@ -59,6 +60,7 @@ signature (`versionCode` in `apps/expo-multi-tv/app.json` must not go down).
 yarn emulator                                  # creates AVD "couchcoach_tv" (Android 14 TV, arm64) and boots it headless
 bash scripts/emulator-screenshots.sh           # installs the APK, drives it with D-pad key events, saves docs/screenshots/tv-*.png
 node scripts/web-screenshots.mjs               # same flow against `yarn dev:web` in headless Chrome -> web-*.png
+node scripts/break-screenshots.mjs             # worst-case data (13 Members, 106 Reps, 6 Faults, 640-char Cue, 10 Sets) -> break-*.png
 ```
 
 ### Driving Live without a phone
@@ -112,6 +114,10 @@ scripts/                   android-env.sh, sync-shared.mjs, build-apk.sh, instal
 - **Back.** A tiny stack (`navigation/backStack.ts`): the newest handler wins, so a dialog gets Back before the screen
   under it. Android uses `BackHandler`; on web Escape/Backspace. Keycode 67 (KEYCODE_DEL) is deliberately not mapped
   to Back, or deleting a letter in the TV keyboard would close the dialog.
+- **Worst-case data.** Fit rules (long names, 8+ Members, 100+ Reps, 4+ Faults, long Cues, 10+ Sets) are pure functions in
+  `lib/fit.ts`; decisions and measurements live in `.interface-design/system.md`.
+- **Motion.** RN `Animated` with `useNativeDriver: true` only (Reanimated was deliberately dropped). Screens and dialogs fade
+  (opacity only, so focusable nodes never move); reduced motion is one shared subscription (`hooks/useReducedMotion.ts`).
 - **Events.** Delivery is at-least-once: `rep` is de-duplicated by index, `set_end` by `setIndex`, `hello` is idempotent.
 
 ## Toolchain (as built on 2026-10-21, macOS arm64)

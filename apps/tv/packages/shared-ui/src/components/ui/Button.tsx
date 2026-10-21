@@ -44,12 +44,12 @@ export function Button({
       <View
         style={[
           styles.base,
-          { minWidth: s(minWidth), minHeight: s(96), borderRadius: s(radius.button) },
+          { minWidth: s(minWidth), minHeight: s(96), borderRadius: s(radius.button), paddingHorizontal: s(48) },
           primary ? { backgroundColor: color.accent } : { backgroundColor: onOverlay ? color.track : color.overlay },
           disabled && styles.disabled,
         ]}
       >
-        <Txt variant="bodyBold" color={primary ? color.onAccent : color.text}>
+        <Txt variant="bodyBold" color={primary ? color.onAccent : color.text} numberOfLines={1}>
           {label}
         </Txt>
       </View>
@@ -58,6 +58,6 @@ export function Button({
 }
 
 const styles = StyleSheet.create({
-  base: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 },
+  base: { alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.45 },
 });
