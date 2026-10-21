@@ -241,7 +241,7 @@ export function createController(root: {
     setCounter += 1;
     const now = Date.now();
     try {
-      runner = createSetRunner({ exercise, setIndex: setCounter, counter: createCounter(exercise), startedAtMs: now });
+      runner = createSetRunner({ exercise, setIndex: setCounter, counter: createCounter(exercise, aspect ? { aspectRatio: aspect } : {}), startedAtMs: now });
     } catch (err) {
       console.error('cannot start counter', err);
       setCounter -= 1;
