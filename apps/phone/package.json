@@ -1,0 +1,29 @@
+{
+  "name": "@couch-coach/phone",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Couch Coach Camera Phone web app: on-device pose estimation, keypoints only on the wire.",
+  "scripts": {
+    "prepare-assets": "node scripts/prepare-assets.mjs",
+    "dev": "node scripts/prepare-assets.mjs dev && vite",
+    "build": "npm run prepare-assets && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@couch-coach/events-client": "file:../../packages/events-client",
+    "@couch-coach/protocol": "file:../../packages/protocol",
+    "@fontsource/bricolage-grotesque": "^5.2.0",
+    "@fontsource/figtree": "^5.2.0",
+    "@mediapipe/tasks-vision": "^1.1.1",
+    "pose-reps": "file:../../../pose-reps"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.0.0",
+    "vitest": "^5.0.5"
+  }
+}

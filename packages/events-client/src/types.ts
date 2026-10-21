@@ -1,0 +1,60 @@
+/** Minimal WebSocket surface the client needs (browser, React Native and test fakes satisfy it). */
+export interface WebSocketLike {
+  readyState: number;
+  send(data: string): void;
+  close(): void;
+  onopen: ((ev: unknown) => void) | null;
+  onmessage: ((ev: { data: unknown }) => void) | null;
+  onclose: ((ev: unknown) => void) | null;
+  onerror: ((ev: unknown) => void) | null;
+}
+
+export type WebSocketConstructor = new (url: string, protocols?: string | string[]) => WebSocketLike;
+
+export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'closed';
+
+/** Connection status. `error` is set when something went wrong; the client keeps retrying on its own. */
+export interface EventsStatus {
+  state: ConnectionState;
+  /** Consecutive failed connection attempts since the last successful handshake. */
+  attempt: number;
+  error?: string;
+}
+
+export interface EventsClientOptions {
+  /** AppSync Events HTTP host, e.g. `abc.appsync-api.us-east-1.amazonaws.com`. */
+  httpHost: string;
+  /** AppSync Events realtime host, e.g. `abc.appsync-realtime-api.us-east-1.amazonaws.com`. */
+  realtimeHost: string;
+  apiKey: string;
+  /** Defaults to the global `WebSocket`. */
+  WebSocketImpl?: WebSocketConstructor;
+  /** Reconnect backoff base (ms). Default 250. */
+  backoffBaseMs?: number;
+  /** Reconnect backoff cap (ms). Default 5000 so recovery stays inside SC6 (5 s). */
+  backoffMaxMs?: number;
+  /** Max time to wait for `connection_ack` after the socket opens. Default 8000. */
+  handshakeTimeoutMs?: number;
+  /** Max time to wait for `publish_success`. Default 10000. */
+  publishTimeoutMs?: number;
+  /** Max publishes held while disconnected. Default 60. */
+  maxQueue?: number;
+  /**
+   * Channels whose events are ephemeral (dropped first when the queue is full,
+   * and rejected rather than resent after a disconnect). Default: channels ending in `/pose`.
+   */
+  isEphemeral?: (channel: string) => boolean;
+  /** Injectable randomness for tests; defaults to `Math.random`. */
+  random?: () => number;
+}
+
+export interface EventsClient {
+  /** Subscribe to a channel; the callback gets each event JSON-parsed. Returns an unsubscribe function. */
+  subscribe(channel: string, onEvent: (event: unknown) => void): () => void;
+  /** Publish 1-5 events (JSON-encoded for you). Queued while connecting. Resolves on `publish_success`. */
+  publish(channel: string, events: readonly unknown[]): Promise<void>;
+  /** Status changes (the current status is replayed immediately). Returns an unsubscribe function. */
+  onStatus(cb: (status: EventsStatus) => void): () => void;
+  /** Close for good: no reconnect, pending publishes rejected. */
+  close(): void;
+}

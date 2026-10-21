@@ -1,0 +1,45 @@
+/* "Lamplight" design tokens (docs/ux.md section 1). Warm hues are reserved for Form Score meaning. */
+:root {
+  --cc-bg: #1b1420;
+  --cc-stage: #120d16;
+  --cc-raised: #261c2d;
+  --cc-overlay: #33263c;
+  --cc-track: #3d2e48;
+  --cc-line: #4a3a55;
+  --cc-text: #fff4e8;
+  --cc-text-dim: #cdbfd6;
+  --cc-text-muted: #a898b4;
+  --cc-accent: #b9a2ff;
+  --cc-on-accent: #1b1420;
+  --cc-accent-soft: #d9ccff;
+  --cc-focus-ring: #fff4e8;
+  --cc-focus-glow: rgba(185, 162, 255, 0.55);
+  --cc-score-good: #5be3a0;
+  --cc-score-ok: #ffc247;
+  --cc-score-poor: #ff5c7a;
+  --cc-on-score: #1b1420;
+  --cc-lamp-glow: rgba(185, 162, 255, 0.12);
+
+  /* unequal radii on purpose */
+  --cc-radius-chip: 14px;
+  --cc-radius-button: 22px;
+  --cc-radius-card: 32px;
+  --cc-radius-sheet: 32px;
+
+  --cc-space-1: 4px;
+  --cc-space-2: 8px;
+  --cc-space-3: 12px;
+  --cc-space-4: 16px;
+  --cc-space-5: 24px;
+  --cc-space-6: 32px;
+
+  --cc-font-display: 'Bricolage Grotesque', system-ui, sans-serif;
+  --cc-font-text: 'Figtree', system-ui, sans-serif;
+
+  --cc-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --cc-dur-focus: 150ms;
+  --cc-dur-enter: 320ms;
+
+  --cc-target: 56px;
+  --cc-target-primary: 72px;
+}
