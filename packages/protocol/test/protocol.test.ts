@@ -120,7 +120,7 @@ describe('coach and session contracts', () => {
     expect(channels('abc')).toEqual({
       pose: '/cc/abc/pose',
       events: '/cc/abc/events',
-      coach: '/cc/abc/coach',
+      coach: '/coach/abc',
     });
   });
 });

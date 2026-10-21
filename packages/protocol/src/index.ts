@@ -134,9 +134,11 @@ export const Member = z.object({
 export type Member = z.infer<typeof Member>;
 export const CreateMemberRequest = z.object({ name: z.string().trim().min(1).max(40) });
 
+/** Phone and TV traffic uses the API-key `cc` namespace; Coach messages live in the separate `coach`
+ * namespace, which only the coach Lambda (IAM) may publish to, so clients can't spoof Cues. */
 export function channels(sessionId: string) {
   const base = `/cc/${sessionId}`;
-  return { pose: `${base}/pose`, events: `${base}/events`, coach: `${base}/coach` };
+  return { pose: `${base}/pose`, events: `${base}/events`, coach: `/coach/${sessionId}` };
 }
 
 /** Runtime configuration shared by the phone and TV; written from CDK outputs. */
