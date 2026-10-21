@@ -131,7 +131,7 @@ You need a Fire TV and a computer on the same Wi-Fi, `adb` (`brew install --cask
 ```bash
 git clone https://github.com/SebAustin/couch-coach.git
 cd couch-coach/apps/tv
-mkdir -p dist && curl -L -o dist/couch-coach.apk APK_URL     # replace APK_URL with the release asset link
+mkdir -p dist && curl -L -o dist/couch-coach.apk https://github.com/SebAustin/couch-coach/releases/download/v1.0/couch-coach-v1.0.apk
 bash scripts/fire-tv-wizard.sh
 ```
 

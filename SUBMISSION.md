@@ -190,7 +190,7 @@ For transparency: a plan (and a glossary and assumptions file) was written on Oc
 | Demo video (YouTube, public) | `VIDEO_URL` |
 | Code repository | https://github.com/SebAustin/couch-coach |
 | Open-source library | https://github.com/SebAustin/pose-reps |
-| Fire TV APK (for judges) | `APK_URL` |
+| Fire TV APK (for judges) | https://github.com/SebAustin/couch-coach/releases/download/v1.0/couch-coach-v1.0.apk (release page: https://github.com/SebAustin/couch-coach/releases/tag/v1.0) |
 | Phone web app | https://d36nqce57j19po.cloudfront.net (needs the pairing link from the TV; it is not a standalone page) |
 | Product feedback | `PRODUCT_FEEDBACK.md` in the repo |
 | Friction log | `FRICTION_LOG.md` in the repo |
@@ -201,7 +201,7 @@ For transparency: a plan (and a glossary and assumptions file) was written on Oc
 ```
 Needs: a Fire TV running Fire OS (or the Android TV emulator), and any phone with a camera and a browser.
 
-1. Download the APK from APK_URL. Enable ADB debugging on the Fire TV (Settings > My Fire TV > Developer Options), then: adb connect <fire-tv-ip>:5555 and adb install -r couch-coach.apk. apps/tv/README.md has a guided script (bash apps/tv/scripts/fire-tv-wizard.sh).
+1. Download the APK from https://github.com/SebAustin/couch-coach/releases/download/v1.0/couch-coach-v1.0.apk. Enable ADB debugging on the Fire TV (Settings > My Fire TV > Developer Options), then: adb connect <fire-tv-ip>:5555 and adb install -r couch-coach.apk. apps/tv/README.md has a guided script (bash apps/tv/scripts/fire-tv-wizard.sh).
 2. Open Couch Coach from the Fire TV apps row, pick a Member (or add one), and scan the QR code with the phone.
 3. Allow the camera, prop the phone upright 2 to 3 m away so your whole body is in frame, pick Squat (45 degrees to the phone works best) or Jumping jack (face the phone), start the set, do a few reps, then press End set.
 4. The Cue appears and is spoken on the TV about two seconds later.
@@ -242,7 +242,7 @@ Use the entries in `FRICTION_LOG.md` (F1 to F16). The ones to paste first, in or
 | Placeholder | Where | What to put |
 |---|---|---|
 | `VIDEO_URL` | section 9 | the public YouTube URL after upload |
-| `APK_URL` | section 9 and judges' instructions | where the APK is hosted (a GitHub Release asset on couch-coach is the simplest; creating a Release is a publish step the owner runs) |
+| `APK_URL` | filled | GitHub Release v1.0 asset; live once the draft release is **published** |
 | `FIRE_TV_MODEL` | section 3, Accomplishments | the exact Fire TV device you filmed (read it from Settings > My Fire TV > About) |
 | `FIRE_OS_VERSION` | section 3, Accomplishments | the Fire OS version shown on the same screen. If the first on-device test (checkpoint 1) has not passed, delete that bullet |
 | Final numbers | section 0 | re-run `npx tsx scripts/e2e-replay.ts` and the test suites; update the table and anything that quotes it |
@@ -287,6 +287,6 @@ Devpost form
 ## 14. Gated actions the owner runs (none were run for you)
 
 1. Upload the video to YouTube as Public.
-2. Create a GitHub Release (or other host) for the APK and fill `APK_URL`.
+2. Publish the draft GitHub Release v1.0 (the APK is attached; the link in section 9 works only after publishing).
 3. Decide on `npm publish` for `pose-reps` (not required; the description says "pending").
 4. Paste this file into Devpost and press Submit.
