@@ -30,3 +30,7 @@ Collected from the build agents with exact error text. Only real friction hit du
 - Root cause of "camera doesn't seem to work": only the upper body was in frame (shoulders 100%, hips/knees/ankles 0%), so pose-reps ignored every frame and the phone gave no feedback. Fixed with a debounced "Step back" framing banner. Product lesson, not platform friction.
 - Live results once framed: squats counted (10/10), jumping jacks counted (10), Haiku Cue arrived after set end. heels_rising flagged on every squat rep, a likely false positive from 2D heel tracking.
 - Coach quality: one Cue praised "feet staying wider today" while feet_not_wide was flagged 8 times; needs an eval or stricter prompt.
+
+## Second live test: recorded set (Oct 21, iPhone + Safari)
+- iPhone Safari held in portrait returned a **landscape 16:9** camera frame although the page asked for `width: {ideal: 720}, height: {ideal: 1280}`. The body filled ~33% of frame height → noisy landmarks (knee angles of 0–40° on collapsed frames), reps over-counted (12 vs a true 9–10), and every fault was a false positive. Mitigation: retry with `aspectRatio: {exact: 9/16}` when the screen is portrait; whether iOS honors `exact` aspectRatio is still unverified on device.
+- Tuning workflow that worked: a cloud-side listener records the Set straight from AppSync Events, so no file has to travel off the phone. A replay harness then prints per-rep measurements, and the owner supplies ground truth.
