@@ -31,7 +31,7 @@ Fully cut: AgentCore Runtime/Memory, lunge, Sonnet recap, Vega build, spoken com
 - **AppSync Events API** (API key, expires 2026-12-15), namespace `cc`:
   - `/cc/<sessionId>/pose`: 15 fps, batched 3 frames per publish.
   - `/cc/<sessionId>/events`: rep, fault, set_end and control events.
-  - `/cc/<sessionId>/coach`
+  - `/coach/<sessionId>` (IAM-publish-only namespace, ADR 0006)
 - **HTTP API + Lambdas (TS, arm64):**
   - `session` handles `POST /session` and `GET/POST /members`. It returns a 128-bit `sessionId` and an HMAC `phoneToken` (2 h) signed with a Secrets Manager secret.
   - `coach` handles `POST /coach`. It validates the token, enforces a cap of 30 calls per session with a DDB atomic counter, then calls Bedrock Converse (Haiku profile), Polly neural → S3 `audio/*` presigned URL (15 min), and publishes to AppSync over HTTP. It also stores the set summary for the member.

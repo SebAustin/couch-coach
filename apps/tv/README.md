@@ -36,7 +36,7 @@ source scripts/android-env.sh      # JAVA_HOME (JDK 17), ANDROID_HOME, PATH, EXP
 yarn build:apk                     # sync -> expo prebuild (EXPO_TV=1) -> gradlew assembleRelease -> dist/couch-coach.apk
 ```
 
-`dist/couch-coach.apk` (about 57 MB, gitignored) is a release build signed with the Expo debug keystore, which is
+`dist/couch-coach.apk` (about 33 MB (ARM only), gitignored) is a release build signed with the Expo debug keystore, which is
 what makes it installable by sideload. Package `dev.sebaustin.couchcoach`, Leanback launcher, TV banner,
 `INTERNET` only, `usesCleartextTraffic=false`, ABIs armeabi-v7a + arm64-v8a (older Fire sticks are 32-bit).
 

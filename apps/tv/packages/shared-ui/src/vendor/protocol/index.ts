@@ -89,7 +89,7 @@ export const PhoneEvent = z.discriminatedUnion('type', [
 ]);
 export type PhoneEvent = z.infer<typeof PhoneEvent>;
 
-/** Published on /cc/<sessionId>/coach by the coach Lambda. */
+/** Published on /coach/<sessionId> by the coach Lambda (IAM-only namespace, ADR 0006). */
 export const CoachMessage = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('cue'),
