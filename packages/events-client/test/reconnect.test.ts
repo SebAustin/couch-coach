@@ -188,3 +188,124 @@ describe('close', () => {
     await expect(p).rejects.toThrow(/closed/);
   });
 });
+
+describe('keep-alive cap', () => {
+  it('never waits longer than maxKeepAliveMs (default 120 s) even if the ack allows 300 s', () => {
+    make();
+    FakeWebSocket.last.ack(300_000);
+    vi.advanceTimersByTime(119_999);
+    expect(FakeWebSocket.instances[0]!.closed).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(FakeWebSocket.instances[0]!.closed).toBe(true);
+  });
+
+  it('honours a shorter timeout from the ack and a custom cap', () => {
+    make({ maxKeepAliveMs: 5000 });
+    FakeWebSocket.last.ack(300_000);
+    vi.advanceTimersByTime(5000);
+    expect(FakeWebSocket.instances[0]!.closed).toBe(true);
+  });
+});
+
+describe('reconnect()', () => {
+  it('replaces a possibly dead socket immediately and resubscribes', () => {
+    const client = make();
+    client.subscribe('/c', () => {});
+    const first = FakeWebSocket.last;
+    first.ack();
+    client.reconnect();
+    expect(first.closed).toBe(true);
+    expect(socketCount()).toBe(2); // no backoff wait
+    const second = FakeWebSocket.last;
+    second.ack();
+    expect(second.sentOfType('subscribe')).toHaveLength(1);
+  });
+
+  it('skips the pending backoff when already waiting to reconnect', () => {
+    const client = make();
+    FakeWebSocket.last.ack();
+    FakeWebSocket.last.serverClose();
+    expect(socketCount()).toBe(1);
+    client.reconnect();
+    expect(socketCount()).toBe(2);
+    vi.advanceTimersByTime(5_000); // shorter than the handshake timeout
+    expect(socketCount()).toBe(2); // the old backoff timer was cancelled
+  });
+
+  it('does nothing after close()', () => {
+    const client = make();
+    client.close();
+    client.reconnect();
+    expect(socketCount()).toBe(1);
+  });
+
+  it('resends un-acked non-ephemeral publishes', async () => {
+    const client = make();
+    FakeWebSocket.last.ack();
+    const p = client.publish('/cc/s/events', [{ type: 'set_end' }]);
+    client.reconnect();
+    FakeWebSocket.last.ack();
+    const [msg] = FakeWebSocket.last.sentOfType('publish');
+    FakeWebSocket.last.serverSend({ type: 'publish_success', id: msg!.id, successful: [], failed: [] });
+    await expect(p).resolves.toBeUndefined();
+  });
+});
+
+describe('subscription acks', () => {
+  it('retries a subscribe that the server rejects, with backoff', () => {
+    const client = make();
+    client.subscribe('/cc/s/coach', () => {});
+    const ws = FakeWebSocket.last;
+    ws.ack();
+    const [first] = ws.sentOfType('subscribe');
+    ws.serverSend({ type: 'subscribe_error', id: first!.id, errors: [{ errorType: 'Throttled', message: 'slow down' }] });
+    expect(ws.sentOfType('subscribe')).toHaveLength(1);
+    vi.advanceTimersByTime(250);
+    expect(ws.sentOfType('subscribe')).toHaveLength(2);
+    ws.serverSend({ type: 'subscribe_error', id: first!.id, errors: [] });
+    vi.advanceTimersByTime(499);
+    expect(ws.sentOfType('subscribe')).toHaveLength(2);
+    vi.advanceTimersByTime(1);
+    expect(ws.sentOfType('subscribe')).toHaveLength(3);
+    ws.serverSend({ type: 'subscribe_success', id: first!.id });
+    vi.advanceTimersByTime(60_000);
+    expect(ws.sentOfType('subscribe')).toHaveLength(3); // acked: no more retries
+  });
+
+  it('retries a subscribe that is never acknowledged', () => {
+    const client = make({ publishTimeoutMs: 1000 });
+    client.subscribe('/c', () => {});
+    const ws = FakeWebSocket.last;
+    ws.ack();
+    vi.advanceTimersByTime(1000 + 250);
+    expect(ws.sentOfType('subscribe').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('stops retrying once the listener has unsubscribed', () => {
+    const client = make();
+    const off = client.subscribe('/c', () => {});
+    const ws = FakeWebSocket.last;
+    ws.ack();
+    const [sub] = ws.sentOfType('subscribe');
+    ws.serverSend({ type: 'subscribe_error', id: sub!.id, errors: [] });
+    off();
+    vi.advanceTimersByTime(10_000);
+    expect(ws.sentOfType('subscribe')).toHaveLength(1);
+  });
+
+  it('does not retry on a dead socket: a reconnect resubscribes once', () => {
+    const client = make();
+    client.subscribe('/c', () => {});
+    const first = FakeWebSocket.last;
+    first.ack();
+    first.serverSend({ type: 'subscribe_error', id: first.sentOfType('subscribe')[0]!.id, errors: [] });
+    first.serverClose();
+    vi.advanceTimersByTime(250);
+    const second = FakeWebSocket.last;
+    second.ack();
+    second.serverSend({ type: 'subscribe_success', id: second.sentOfType('subscribe')[0]!.id });
+    vi.advanceTimersByTime(60_000);
+    expect(first.sentOfType('subscribe')).toHaveLength(1);
+    expect(second.sentOfType('subscribe')).toHaveLength(1);
+  });
+});

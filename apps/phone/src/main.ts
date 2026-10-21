@@ -16,7 +16,7 @@ function el(id: string): HTMLElement {
 }
 
 async function boot(): Promise<void> {
-  const controller = createController({ ui: el('ui'), stage: el('stage'), chip: el('chip'), debug: el('debug') });
+  const controller = createController({ ui: el('ui'), stage: el('stage'), chip: el('chip'), notice: el('notice'), debug: el('debug') });
   controller.show('boot');
   const params = parseSessionParams(location.search);
   if (!params.ok) {

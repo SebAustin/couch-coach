@@ -1,3 +1,5 @@
+import { resolveAspect } from './logic/aspect';
+
 export type Facing = 'user' | 'environment';
 
 export type CameraResult =
@@ -60,8 +62,9 @@ export async function openCamera(video: HTMLVideoElement, facing: Facing): Promi
     await video.play();
     await waitForDimensions(video);
     const finalStream = await requestPortraitIfNeeded(video, stream, facing);
-    return { ok: true, stream: finalStream, aspect: video.videoWidth / video.videoHeight };
+    return { ok: true, stream: finalStream, aspect: await readAspect(video) };
   } catch (err) {
+    closeCamera(video); // do not leak a half-opened stream
     const name = (err as DOMException).name;
     if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'PermissionDeniedError') {
       return { ok: false, reason: 'denied', message: 'Camera permission was denied.' };
@@ -86,6 +89,20 @@ export async function cameraAlreadyGranted(): Promise<boolean> {
   }
 }
 
+/** Frame aspect with one wait-and-retry, then an explicit 9/16 fallback (never NaN). */
+function readAspect(video: HTMLVideoElement): Promise<number> {
+  return resolveAspect(
+    () => ({ width: video.videoWidth, height: video.videoHeight }),
+    () => waitForDimensions(video),
+  );
+}
+
+/** The live video track of the element's stream, if any. */
+export function videoTrack(video: HTMLVideoElement): MediaStreamTrack | null {
+  const stream = video.srcObject;
+  return stream instanceof MediaStream ? (stream.getVideoTracks()[0] ?? null) : null;
+}
+
 function waitForDimensions(video: HTMLVideoElement): Promise<void> {
   if (video.videoWidth > 0) return Promise.resolve();
   return new Promise((resolve) => {
@@ -94,16 +111,27 @@ function waitForDimensions(video: HTMLVideoElement): Promise<void> {
   });
 }
 
-/** Keeps the screen on while a Session is running (Wake Lock API, where supported). */
-export function createWakeLock() {
+export type WakeLockState = 'on' | 'unavailable';
+
+/**
+ * Keeps the screen on while a Session is running (Wake Lock API, where supported). `onChange` is
+ * called with 'unavailable' when the browser lacks the API or denies the request, so the UI can say so.
+ */
+export function createWakeLock(onChange: (state: WakeLockState) => void = () => {}) {
   let sentinel: WakeLockSentinel | null = null;
   let wanted = false;
   const acquire = async () => {
-    if (!wanted || !('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+    if (!wanted || document.visibilityState !== 'visible') return;
+    if (!('wakeLock' in navigator)) {
+      onChange('unavailable');
+      return;
+    }
     try {
       sentinel = await navigator.wakeLock.request('screen');
+      onChange('on');
     } catch {
       sentinel = null; // denied (e.g. low battery); the app still works
+      onChange('unavailable');
     }
   };
   document.addEventListener('visibilitychange', () => void acquire());

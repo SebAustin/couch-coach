@@ -11,8 +11,11 @@ export interface CounterLike<P> {
 export interface SetRunner<P> {
   readonly exercise: Exercise;
   readonly setIndex: number;
-  /** Feed one frame. Returns the `rep` event when a rep just completed. */
-  push(pose: P, tMs: number): RepEvent | null;
+  /**
+   * Feed one frame. `tMs` is the counter's clock (monotonic); `wireT` stamps the `rep` event
+   * (wall clock, defaults to `tMs`). Returns the `rep` event when a rep just completed.
+   */
+  push(pose: P, tMs: number, wireT?: number): RepEvent | null;
   repCount(): number;
   /** Running Set Form Score (mean of reps), or null before the first rep. */
   score(): number | null;
@@ -33,7 +36,7 @@ export function createSetRunner<P>(opts: {
   return {
     exercise: opts.exercise,
     setIndex: opts.setIndex,
-    push(pose, tMs) {
+    push(pose, tMs, wireT = tMs) {
       const result = opts.counter.push(pose, tMs);
       if (!result) return null;
       reps.push({ score: result.score, faults: [...result.faults] });
@@ -44,7 +47,7 @@ export function createSetRunner<P>(opts: {
         index: reps.length,
         score: Math.min(100, Math.max(0, result.score)),
         faults: [...result.faults],
-        t: tMs,
+        t: wireT,
       };
     },
     repCount: () => reps.length,

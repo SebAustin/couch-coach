@@ -39,6 +39,10 @@ export interface Vm {
   framing: FramingIssue | null;
   /** One-line message for the picker (e.g. an Exercise that cannot start). */
   notice: string | null;
+  /** The camera stopped or paused (e.g. iOS interruption); the notice offers a tap to resume. */
+  cameraIssue: 'tap_to_resume' | 'lost' | null;
+  /** The browser refused to keep the screen awake. */
+  wakeLock: 'ok' | 'unavailable';
 }
 
 export interface Actions {

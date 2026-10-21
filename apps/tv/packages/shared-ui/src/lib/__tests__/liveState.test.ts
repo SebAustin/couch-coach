@@ -180,6 +180,79 @@ describe('liveReducer', () => {
   });
 });
 
+describe('presence', () => {
+  it('tracks whether a person is in frame and counts as a phone signal', () => {
+    const s = run([phone({ type: 'presence', person: false, t: 1 })]);
+    expect(s.hasPhone).toBe(true);
+    expect(s.personPresent).toBe(false);
+    expect(liveReducer(s, phone({ type: 'presence', person: true, t: 2 })).personPresent).toBe(true);
+  });
+  it('is unknown until the first presence event', () => {
+    expect(initialLiveState.personPresent).toBeNull();
+  });
+});
+
+describe('late Coach messages', () => {
+  const cue = (setIndex: number): CoachMessage => ({ type: 'cue', text: 'Nice', setIndex, t: 1 });
+  const thinking = (setIndex: number): CoachMessage => ({ type: 'thinking', setIndex, t: 1 });
+
+  it('drops a Cue or thinking for an earlier Set so it cannot play over Set 2', () => {
+    const inSet2 = run([
+      phone({ type: 'set_start', exercise: 'squat', t: 0 }),
+      phone(setEnd(1, 8, 84)),
+      phone({ type: 'set_start', exercise: 'squat', t: 1 }),
+    ]);
+    expect(inSet2.setIndex).toBe(2);
+    expect(liveReducer(inSet2, coach(cue(1)))).toBe(inSet2);
+    expect(liveReducer(inSet2, coach(thinking(1)))).toBe(inSet2);
+    expect(liveReducer(inSet2, coach(cue(1))).lastCueText).toBeNull();
+  });
+
+  it('still accepts a Cue for the Set that just ended, even if it beats the set_end event', () => {
+    const inSet1 = run([phone({ type: 'set_start', exercise: 'squat', t: 0 })]);
+    expect(liveReducer(inSet1, coach(thinking(1))).coach.status).toBe('thinking');
+    expect(liveReducer(inSet1, coach(cue(1))).coach.status).toBe('cue');
+  });
+
+  it('accepts a Cue for a later Set than the TV has seen', () => {
+    expect(liveReducer(initialLiveState, coach(cue(3))).coach.status).toBe('cue');
+  });
+});
+
+describe('duplicate set_start', () => {
+  it('is ignored while the same Set is already running, keeping its Reps and scores', () => {
+    const s = run([
+      phone({ type: 'set_start', exercise: 'squat', t: 0 }),
+      phone(rep(1, 100)),
+      phone(rep(2, 70)),
+      phone({ type: 'set_start', exercise: 'squat', t: 5 }),
+    ]);
+    expect(s.reps).toBe(2);
+    expect(s.repScores).toEqual([100, 70]);
+    expect(s.lastRep?.index).toBe(2);
+    expect(s.setIndex).toBe(1);
+  });
+
+  it('does not dismiss a Cue either', () => {
+    const s = run([
+      phone({ type: 'set_start', exercise: 'squat', t: 0 }),
+      coach({ type: 'thinking', setIndex: 1, t: 1 }),
+      phone({ type: 'set_start', exercise: 'squat', t: 2 }),
+    ]);
+    expect(s.coach.status).toBe('thinking');
+  });
+
+  it('a different Exercise while in a Set still starts fresh', () => {
+    const s = run([
+      phone({ type: 'set_start', exercise: 'squat', t: 0 }),
+      phone(rep(1, 100)),
+      phone({ type: 'set_start', exercise: 'jumping_jack', t: 5 }),
+    ]);
+    expect(s.exercise).toBe('jumping_jack');
+    expect(s.reps).toBe(0);
+  });
+});
+
 describe('setRecapLine', () => {
   it('formats the thinking-card recap', () => {
     expect(setRecapLine({ setIndex: 2, set: { exercise: 'squat', reps: 8, score: 84, faults: {}, durationMs: 1 } })).toBe(

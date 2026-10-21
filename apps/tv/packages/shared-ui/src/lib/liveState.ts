@@ -24,6 +24,8 @@ export type CoachState =
 /** Everything the Live HUD shows, derived purely from the Session's event stream. */
 export interface LiveState {
   hasPhone: boolean;
+  /** From `presence` events: is anybody in the camera frame? null until the first one. */
+  personPresent: boolean | null;
   /** Camera width / height from `hello`, default 9:16 portrait. */
   aspect: number;
   inSet: boolean;
@@ -47,6 +49,7 @@ export interface LiveState {
 
 export const initialLiveState: LiveState = {
   hasPhone: false,
+  personPresent: null,
   aspect: DEFAULT_ASPECT,
   inSet: false,
   exercise: null,
@@ -89,6 +92,8 @@ function applyPhoneEvent(state: LiveState, event: PhoneEvent): LiveState {
       return { ...state, hasPhone: true, aspect };
     }
     case 'set_start':
+      // At-least-once delivery: a repeat of the running Set's start must not wipe its Reps and scores.
+      if (state.inSet && state.exercise === event.exercise) return state;
       return {
         ...state,
         hasPhone: true,
@@ -139,6 +144,8 @@ function applyPhoneEvent(state: LiveState, event: PhoneEvent): LiveState {
         paused: false,
       };
     }
+    case 'presence':
+      return { ...state, hasPhone: true, personPresent: event.person };
     case 'control':
       if (event.action === 'end_session') return { ...state, endRequested: true };
       return { ...state, paused: event.action === 'pause' };
@@ -146,6 +153,9 @@ function applyPhoneEvent(state: LiveState, event: PhoneEvent): LiveState {
 }
 
 function applyCoach(state: LiveState, message: CoachMessage): LiveState {
+  // A late thinking/Cue for an earlier Set must never show or play over the Set in progress. (A message for the
+  // current Set is fine even if it beats its own set_end: the channels are not ordered against each other.)
+  if (message.setIndex < state.setIndex) return state;
   if (message.type === 'thinking') return { ...state, coach: { status: 'thinking', setIndex: message.setIndex } };
   return {
     ...state,

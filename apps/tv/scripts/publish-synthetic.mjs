@@ -19,6 +19,7 @@
  *   --end                finish with control end_session (what the phone does on Finish Session)
  *   --end-delay <s>      wait this long after the Cue before ending (default 4)
  *   --stall <seconds>    stop sending poses for N seconds mid-Set (exercises "Lost your phone")
+ *   (presence {person:true} is sent every 2 s, like the phone does)
  *   --fps <n>            pose frame rate (default 15; the phone streams 3 frames per publish)
  *
  * It speaks the AppSync Events WebSocket protocol directly (global WebSocket, Node >= 22), no dependencies.
@@ -173,6 +174,7 @@ async function main() {
   await events.opened;
   const now = () => Date.now();
   await events.publish(channels.events, [{ type: 'hello', memberId, aspect: 9 / 16, t: now() }]);
+  const presence = setInterval(() => events.publish(channels.events, [{ type: 'presence', person: true, t: now() }]).catch(() => undefined), 2000);
   console.log(`hello sent; waiting ${waitSeconds}s for the TV...`);
   // Keep poses flowing while we wait so the skeleton is visible immediately.
   await streamPoses(events, channels, exercise, waitSeconds, faultIds, 0);
@@ -208,6 +210,7 @@ async function main() {
     console.log('control end_session sent');
   }
   await sleep(500);
+  clearInterval(presence);
   events.close();
 }
 

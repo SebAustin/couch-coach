@@ -144,12 +144,44 @@ describe('publish', () => {
     await expect(p2).rejects.toThrow(/failed/);
   });
 
-  it('rejects when no ack arrives within publishTimeoutMs', async () => {
+  it('treats a missing publish ack as a dead connection: drops the socket and resends the publish', async () => {
+    const client = make({ publishTimeoutMs: 1000 });
+    const first = FakeWebSocket.last;
+    first.ack();
+    const p = client.publish('/cc/s/events', [{ type: 'rep' }]);
+    await vi.advanceTimersByTimeAsync(1001);
+    expect(first.closed).toBe(true);
+    await vi.advanceTimersByTimeAsync(250);
+    const second = FakeWebSocket.last;
+    expect(second).not.toBe(first);
+    second.ack();
+    const [resent] = second.sentOfType('publish');
+    expect(resent!.events).toEqual(['{"type":"rep"}']);
+    second.serverSend({ type: 'publish_success', id: resent!.id, successful: [], failed: [] });
+    await expect(p).resolves.toBeUndefined();
+  });
+
+  it('rejects an ephemeral publish whose ack never arrives and still drops the connection', async () => {
+    const client = make({ publishTimeoutMs: 1000 });
+    const first = FakeWebSocket.last;
+    first.ack();
+    const p = client.publish('/cc/s/pose', [{ n: 1 }]);
+    const assertion = expect(p).rejects.toThrow(/connection lost/);
+    await vi.advanceTimersByTimeAsync(1001);
+    await assertion;
+    expect(first.closed).toBe(true);
+  });
+
+  it('gives up on a publish after 3 unacknowledged attempts', async () => {
     const client = make({ publishTimeoutMs: 1000 });
     FakeWebSocket.last.ack();
-    const p = client.publish('/c', [{}]);
+    const p = client.publish('/cc/s/events', [{}]);
     const assertion = expect(p).rejects.toThrow(/timed out/);
-    await vi.advanceTimersByTimeAsync(1001);
+    for (let i = 0; i < 3; i++) {
+      await vi.advanceTimersByTimeAsync(1001); // attempt times out
+      await vi.advanceTimersByTimeAsync(250); // reconnect
+      FakeWebSocket.last.ack(); // new socket acks but never acknowledges the publish
+    }
     await assertion;
   });
 

@@ -10,7 +10,7 @@ import { LampGlow } from '../../components/ui/LampGlow';
 import { Txt } from '../../components/ui/Txt';
 import { useNow } from '../../hooks/useNow';
 import type { SessionStream } from '../../hooks/useSessionStream';
-import { deriveConnection } from '../../lib/connection';
+import { deriveConnection, reconnectTick } from '../../lib/connection';
 import { setRecapLine, runningScore } from '../../lib/liveState';
 import { fitContain } from '../../lib/skeletonPaths';
 import { useBackHandler } from '../../navigation/backStack';
@@ -38,7 +38,7 @@ interface Props {
 
 /** Live: skeleton stage on the left, HUD on the right, Coach card over the stage, status + debug overlays. */
 export function LiveScreen({ member, sessionId, stream, onEnded, onNewCode }: Props) {
-  const { state, connection, buffer, telemetry, dismissCue, endSession } = stream;
+  const { state, connection, buffer, telemetry, dismissCue, endSession, reconnect } = stream;
   const now = useNow(TICK_MS);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [debug, setDebug] = useState(false);
@@ -62,8 +62,9 @@ export function LiveScreen({ member, sessionId, stream, onEnded, onNewCode }: Pr
     socketDownMs: downSince.current === null ? 0 : now - downSince.current,
     hasPhone: state.hasPhone,
     paused: state.paused,
-    msSincePose: telemetry.current.lastPoseAt === 0 ? null : now - telemetry.current.lastPoseAt,
+    msSinceSignal: telemetry.current.lastSignalAt === 0 ? null : now - telemetry.current.lastSignalAt,
   });
+  const msSinceSignal = telemetry.current.lastSignalAt === 0 ? null : now - telemetry.current.lastSignalAt;
   const quiet = link.card !== 'none';
 
   // --- ending the Session -----------------------------------------------------------------
@@ -73,16 +74,23 @@ export function LiveScreen({ member, sessionId, stream, onEnded, onNewCode }: Pr
     onEnded();
   }, [onEnded]);
 
-  const endFromTv = useCallback(async () => {
+  const endFromTv = useCallback(() => {
     if (ending.current) return;
     setConfirmOpen(false);
-    await endSession();
+    // Publish in the background: the Recap shows at once and the stream stays open until the publish settles.
+    void endSession();
     finish();
   }, [endSession, finish]);
 
   useEffect(() => {
     if (state.endRequested) finish(); // the phone ended it
   }, [state.endRequested, finish]);
+
+  // A phone that stays silent may mean our own socket is half-dead: re-establish it every 10 s while lost.
+  const reconnectCount = reconnectTick(link.card, msSinceSignal);
+  useEffect(() => {
+    if (reconnectCount > 0) reconnect();
+  }, [reconnectCount, reconnect]);
 
   // --- Back, Menu/Info, and first-press focus reveal --------------------------------------
   useBackHandler(() => {
@@ -140,7 +148,10 @@ export function LiveScreen({ member, sessionId, stream, onEnded, onNewCode }: Pr
   );
 
   const lastSet = state.sets.length > 0 ? state.sets[state.sets.length - 1] : undefined;
-  const readyHint = !state.inSet && state.sets.length === 0 && state.reps === 0 && link.card === 'none' && !cueVisible;
+  // "We can't see you" comes from the phone's presence events or from all-low-visibility poses. It is just a pill:
+  // the stage is neither frozen nor dimmed (only a lost phone or lost TV link does that).
+  const cantSee = (noPose || state.personPresent === false) && link.card === 'none';
+  const readyHint = !state.inSet && state.sets.length === 0 && state.reps === 0 && link.card === 'none' && !cueVisible && !cantSee;
   const pillLevel = link.level;
   const handleNoPose = useCallback((value: boolean) => setNoPose(value), []);
 
@@ -168,7 +179,7 @@ export function LiveScreen({ member, sessionId, stream, onEnded, onNewCode }: Pr
         </View>
 
         {readyHint && <CenterPill text="Ready when you are. Pick an Exercise on your phone." />}
-        {noPose && !quiet && !readyHint && (
+        {cantSee && (
           <CenterPill text="We can't see you. Step back so your whole body is in the frame." />
         )}
 

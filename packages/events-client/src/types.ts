@@ -37,6 +37,13 @@ export interface EventsClientOptions {
   handshakeTimeoutMs?: number;
   /** Max time to wait for `publish_success`. Default 10000. */
   publishTimeoutMs?: number;
+  /**
+   * Upper bound for the keep-alive timeout, whatever `connection_ack` says (AppSync allows 300 s,
+   * which would leave a dead socket undetected for 5 minutes). Default 120000.
+   */
+  maxKeepAliveMs?: number;
+  /** Ephemeral publishes queued longer than this are dropped at flush time. Default 1000. */
+  ephemeralMaxAgeMs?: number;
   /** Max publishes held while disconnected. Default 60. */
   maxQueue?: number;
   /**
@@ -48,13 +55,24 @@ export interface EventsClientOptions {
   random?: () => number;
 }
 
+export interface PublishOptions {
+  /** Override `isEphemeral` for this publish (e.g. a heartbeat on an events channel). */
+  ephemeral?: boolean;
+}
+
 export interface EventsClient {
   /** Subscribe to a channel; the callback gets each event JSON-parsed. Returns an unsubscribe function. */
   subscribe(channel: string, onEvent: (event: unknown) => void): () => void;
   /** Publish 1-5 events (JSON-encoded for you). Queued while connecting. Resolves on `publish_success`. */
-  publish(channel: string, events: readonly unknown[]): Promise<void>;
+  publish(channel: string, events: readonly unknown[], options?: PublishOptions): Promise<void>;
   /** Status changes (the current status is replayed immediately). Returns an unsubscribe function. */
   onStatus(cb: (status: EventsStatus) => void): () => void;
+  /**
+   * Throw away the current socket (it may be dead without the browser knowing, e.g. after the page
+   * was backgrounded) and connect again right away, skipping any backoff. Subscriptions are restored
+   * and un-acked non-ephemeral publishes are resent. No-op after `close()`.
+   */
+  reconnect(): void;
   /** Close for good: no reconnect, pending publishes rejected. */
   close(): void;
 }

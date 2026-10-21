@@ -1,6 +1,6 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { COACH_TIMEOUT_MS, QUIET_CARD_MS, useSessionStream, type SessionStream } from '../useSessionStream';
+import { COACH_TIMEOUT_MS, END_PUBLISH_TIMEOUT_MS, QUIET_CARD_MS, useSessionStream, type SessionStream } from '../useSessionStream';
 import type { EventsClient, EventsStatus } from '../../vendor/events-client';
 import { channels, encodeFrame, KEYPOINT_COUNT } from '../../vendor/protocol';
 
@@ -24,9 +24,12 @@ function fakeClient() {
       return () => undefined;
     }),
     close: jest.fn(),
-  };
+    reconnect: jest.fn(),
+  } as EventsClient & { reconnect: jest.Mock };
   return { client, emit: (channel: string, event: unknown) => listeners.get(channel)?.(event), setStatus: (s: EventsStatus) => statusCb(s) };
 }
+
+const mounted: TestRenderer.ReactTestRenderer[] = [];
 
 function mount(sessionId: string | null, fake = fakeClient(), now = () => 1_000_000) {
   const out: { current: SessionStream | null } = { current: null };
@@ -38,13 +41,26 @@ function mount(sessionId: string | null, fake = fakeClient(), now = () => 1_000_
   act(() => {
     renderer = TestRenderer.create(<Harness id={sessionId} />);
   });
+  mounted.push(renderer);
   return { out, fake, renderer, Harness };
 }
 
 const pose = Array.from({ length: KEYPOINT_COUNT }, () => ({ x: 0.5, y: 0.5, visibility: 1 }));
 
 describe('useSessionStream', () => {
-  afterEach(() => jest.useRealTimers());
+  afterEach(() => {
+    // Unmount so pending Coach timers (12 s) never outlive a test.
+    act(() => {
+      while (mounted.length) {
+        try {
+          mounted.pop()!.unmount();
+        } catch {
+          /* already unmounted by the test */
+        }
+      }
+    });
+    jest.useRealTimers();
+  });
 
   it('subscribes to the three Session channels and closes the client on unmount', () => {
     const { fake, renderer } = mount(SESSION);
@@ -108,6 +124,76 @@ describe('useSessionStream', () => {
     await act(async () => {
       await expect(out.current!.endSession()).resolves.toBeUndefined();
     });
+  });
+
+  it('counts phone events, poses and presence as phone signals, but not Coach messages', () => {
+    let clock = 1_000;
+    const { out, fake } = mount(SESSION, undefined, () => clock);
+    const ch = channels(SESSION);
+    expect(out.current!.telemetry.current.lastSignalAt).toBe(0);
+    clock = 2_000;
+    act(() => fake.emit(ch.events, { type: 'presence', person: false, t: 1 }));
+    expect(out.current!.telemetry.current.lastSignalAt).toBe(2_000);
+    expect(out.current!.state.personPresent).toBe(false);
+    clock = 3_000;
+    act(() => fake.emit(ch.pose, { type: 'pose', frames: [encodeFrame(pose, 5)] }));
+    expect(out.current!.telemetry.current.lastSignalAt).toBe(3_000);
+    clock = 4_000;
+    act(() => fake.emit(ch.coach, { type: 'thinking', setIndex: 1, t: 1 }));
+    expect(out.current!.telemetry.current.lastSignalAt).toBe(3_000);
+  });
+
+  it('keeps the client open until the end_session publish settles, even after unmount', async () => {
+    const fake = fakeClient();
+    let settle!: () => void;
+    (fake.client.publish as jest.Mock).mockReturnValue(new Promise<void>((resolve) => { settle = resolve; }));
+    const { out, renderer } = mount(SESSION, fake);
+    let ended!: Promise<void>;
+    act(() => {
+      ended = out.current!.endSession();
+    });
+    act(() => out.current!.close()); // the Recap is showing; close() must wait for the publish
+    act(() => renderer.unmount()); // ...and so must unmount cleanup
+    expect(fake.client.close).not.toHaveBeenCalled();
+    await act(async () => {
+      settle();
+      await ended;
+    });
+    expect(fake.client.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up waiting for the end_session publish after 5 s and then closes', async () => {
+    jest.useFakeTimers();
+    const fake = fakeClient();
+    (fake.client.publish as jest.Mock).mockReturnValue(new Promise<void>(() => undefined));
+    const { out } = mount(SESSION, fake);
+    let ended!: Promise<void>;
+    act(() => {
+      ended = out.current!.endSession();
+    });
+    act(() => out.current!.close());
+    expect(fake.client.close).not.toHaveBeenCalled();
+    await act(async () => {
+      jest.advanceTimersByTime(END_PUBLISH_TIMEOUT_MS + 10);
+      await ended;
+    });
+    expect(fake.client.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes immediately when nothing is pending', () => {
+    const { out, fake } = mount(SESSION);
+    act(() => out.current!.close());
+    expect(fake.client.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks the events client to reconnect when it supports it, and tolerates older clients', () => {
+    const { out, fake } = mount(SESSION);
+    act(() => out.current!.reconnect());
+    expect((fake.client as unknown as { reconnect: jest.Mock }).reconnect).toHaveBeenCalledTimes(1);
+    const old = fakeClient();
+    delete (old.client as { reconnect?: unknown }).reconnect;
+    const m = mount(SESSION, old);
+    expect(() => act(() => m.out.current!.reconnect())).not.toThrow();
   });
 
   it('turns an unanswered thinking state into quiet after 12 s, then hides the card after 8 s', () => {

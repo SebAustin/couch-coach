@@ -34,7 +34,8 @@ export function createSessionNet(config: ClientConfig, sessionId: string): Sessi
   return {
     client,
     channels: ch,
-    publishEvent: (event) => client.publish(ch.events, [event]),
+    // The presence heartbeat is only meaningful when fresh: never replay it after a reconnect.
+    publishEvent: (event) => client.publish(ch.events, [event], { ephemeral: event.type === 'presence' }),
     publishPose: (batch) => client.publish(ch.pose, [batch]),
 
     onCoach: (cb) =>

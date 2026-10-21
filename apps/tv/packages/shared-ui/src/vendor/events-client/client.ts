@@ -16,6 +16,10 @@ const DEFAULT_HANDSHAKE_TIMEOUT_MS = 8_000;
 const DEFAULT_BACKOFF_BASE_MS = 250;
 const DEFAULT_BACKOFF_MAX_MS = 5_000;
 const DEFAULT_MAX_QUEUE = 60;
+const DEFAULT_MAX_KEEP_ALIVE_MS = 120_000;
+const DEFAULT_EPHEMERAL_MAX_AGE_MS = 1_000;
+/** A publish whose ack times out is resent on a fresh connection this many times in total. */
+const MAX_PUBLISH_ATTEMPTS = 3;
 /** AppSync's documented default when `connection_ack` carries no timeout. */
 const FALLBACK_CONNECTION_TIMEOUT_MS = 300_000;
 
@@ -23,6 +27,10 @@ interface Subscription {
   id: string;
   channel: string;
   listeners: Set<(event: unknown) => void>;
+  /** Consecutive failed subscribe attempts (error or no ack); drives the retry backoff. */
+  retries: number;
+  ackTimer?: ReturnType<typeof setTimeout>;
+  retryTimer?: ReturnType<typeof setTimeout>;
 }
 
 interface Publish {
@@ -30,6 +38,8 @@ interface Publish {
   channel: string;
   events: string[];
   ephemeral: boolean;
+  queuedAt: number;
+  attempts: number;
   resolve: () => void;
   reject: (err: Error) => void;
   timer?: ReturnType<typeof setTimeout>;
@@ -66,6 +76,8 @@ export function createEventsClient(options: EventsClientOptions): EventsClient {
   const backoffBaseMs = options.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS;
   const backoffMaxMs = options.backoffMaxMs ?? DEFAULT_BACKOFF_MAX_MS;
   const maxQueue = options.maxQueue ?? DEFAULT_MAX_QUEUE;
+  const maxKeepAliveMs = options.maxKeepAliveMs ?? DEFAULT_MAX_KEEP_ALIVE_MS;
+  const ephemeralMaxAgeMs = options.ephemeralMaxAgeMs ?? DEFAULT_EPHEMERAL_MAX_AGE_MS;
   const isEphemeral = options.isEphemeral ?? ((channel: string) => channel.endsWith('/pose'));
   const random = options.random ?? Math.random;
 
@@ -120,18 +132,30 @@ export function createEventsClient(options: EventsClientOptions): EventsClient {
   }
 
   function sendPublish(p: Publish): void {
+    const ws = socket;
+    p.attempts += 1;
     inflight.set(p.id, p);
     sendRaw({ type: 'publish', id: p.id, channel: p.channel, events: p.events, authorization });
     p.timer = setTimeout(() => {
-      inflight.delete(p.id);
-      p.reject(new Error(`publish timed out after ${publishTimeoutMs} ms`));
+      if (!inflight.has(p.id)) return;
+      // No ack: the socket is probably dead even though the browser has not noticed. Drop it so
+      // recoverInflight() requeues (or rejects, if ephemeral) everything that was in flight.
+      if (p.attempts >= MAX_PUBLISH_ATTEMPTS) {
+        inflight.delete(p.id);
+        p.reject(new Error(`publish timed out after ${publishTimeoutMs} ms`));
+      }
+      if (ws) dropConnection(ws, 'publish timed out');
     }, publishTimeoutMs);
   }
 
   function flushQueue(): void {
     const pending = queue;
     queue = [];
-    for (const p of pending) sendPublish(p);
+    const now = Date.now();
+    for (const p of pending) {
+      if (p.ephemeral && now - p.queuedAt > ephemeralMaxAgeMs) p.reject(new Error('dropped: stale pose batch'));
+      else sendPublish(p);
+    }
   }
 
   /** After a drop: ephemeral publishes are rejected, the rest go back to the front of the queue. */
@@ -181,7 +205,10 @@ export function createEventsClient(options: EventsClientOptions): EventsClient {
 
   function armKeepAlive(ws: WebSocketLike): void {
     clearTimeout(keepAliveTimer);
-    keepAliveTimer = setTimeout(() => dropConnection(ws, 'keep-alive timeout'), connectionTimeoutMs);
+    keepAliveTimer = setTimeout(
+      () => dropConnection(ws, 'keep-alive timeout'),
+      Math.min(connectionTimeoutMs, maxKeepAliveMs),
+    );
   }
 
   function handleAck(ws: WebSocketLike, msg: Record<string, unknown>): void {
@@ -192,7 +219,10 @@ export function createEventsClient(options: EventsClientOptions): EventsClient {
         : FALLBACK_CONNECTION_TIMEOUT_MS;
     armKeepAlive(ws);
     setStatus({ state: 'connected', attempt: 0 });
-    for (const sub of subscriptions.values()) sendSubscribe(sub);
+    for (const sub of subscriptions.values()) {
+      sub.retries = 0;
+      sendSubscribe(sub);
+    }
     flushQueue();
   }
 
@@ -216,17 +246,56 @@ export function createEventsClient(options: EventsClientOptions): EventsClient {
       case 'publish_error':
         handlePublishResult(msg);
         break;
+      case 'subscribe_success':
+        handleSubscribeSuccess(msg);
+        break;
       case 'subscribe_error':
+        reportError(describeErrors(msg));
+        handleSubscribeError(ws, msg);
+        break;
       case 'error':
         reportError(describeErrors(msg));
         break;
-      default: // ka, subscribe_success, unsubscribe_success
+      default: // ka, unsubscribe_success
         break;
     }
   }
 
+  const findSubscription = (id: unknown) => [...subscriptions.values()].find((s) => s.id === id);
+
+  function clearSubscriptionTimers(sub: Subscription): void {
+    clearTimeout(sub.ackTimer);
+    clearTimeout(sub.retryTimer);
+  }
+
+  /** Send `subscribe` and expect `subscribe_success`; no ack in time counts as a failed attempt. */
   function sendSubscribe(sub: Subscription): void {
+    const ws = socket;
+    clearSubscriptionTimers(sub);
     sendRaw({ type: 'subscribe', id: sub.id, channel: sub.channel, authorization });
+    sub.ackTimer = setTimeout(() => retrySubscribe(sub, ws), publishTimeoutMs);
+  }
+
+  function retrySubscribe(sub: Subscription, ws: WebSocketLike | null): void {
+    clearSubscriptionTimers(sub);
+    if (!ws || ws !== socket || !isConnected()) return; // a reconnect resubscribes everything
+    const delay = backoffDelay(sub.retries, backoffBaseMs, backoffMaxMs, random);
+    sub.retries += 1;
+    sub.retryTimer = setTimeout(() => {
+      if (subscriptions.get(sub.channel) === sub && ws === socket && isConnected()) sendSubscribe(sub);
+    }, delay);
+  }
+
+  function handleSubscribeSuccess(msg: Record<string, unknown>): void {
+    const sub = findSubscription(msg.id);
+    if (!sub) return;
+    clearSubscriptionTimers(sub);
+    sub.retries = 0;
+  }
+
+  function handleSubscribeError(ws: WebSocketLike, msg: Record<string, unknown>): void {
+    const sub = findSubscription(msg.id);
+    if (sub) retrySubscribe(sub, ws);
   }
 
   // ---- connection lifecycle ------------------------------------------------
@@ -290,6 +359,7 @@ export function createEventsClient(options: EventsClientOptions): EventsClient {
     inflight.clear();
     for (const p of queue) p.reject(closedError());
     queue = [];
+    for (const sub of subscriptions.values()) clearSubscriptionTimers(sub);
     subscriptions.clear();
     setStatus({ state: 'closed' });
   }
@@ -301,7 +371,7 @@ export function createEventsClient(options: EventsClientOptions): EventsClient {
       if (isClosed) return () => {};
       let sub = subscriptions.get(channel);
       if (!sub) {
-        sub = { id: newId(), channel, listeners: new Set() };
+        sub = { id: newId(), channel, listeners: new Set(), retries: 0 };
         subscriptions.set(channel, sub);
         if (isConnected()) sendSubscribe(sub);
       }
@@ -311,11 +381,12 @@ export function createEventsClient(options: EventsClientOptions): EventsClient {
         current.listeners.delete(onEvent);
         if (current.listeners.size > 0 || subscriptions.get(channel) !== current) return;
         subscriptions.delete(channel);
+        clearSubscriptionTimers(current);
         if (isConnected()) sendRaw({ type: 'unsubscribe', id: current.id });
       };
     },
 
-    publish(channel, events) {
+    publish(channel, events, publishOptions) {
       if (isClosed) return Promise.reject(new Error('client closed'));
       if (events.length === 0 || events.length > MAX_EVENTS_PER_PUBLISH) {
         return Promise.reject(new Error(`publish takes 1-${MAX_EVENTS_PER_PUBLISH} events, got ${events.length}`));
@@ -325,7 +396,9 @@ export function createEventsClient(options: EventsClientOptions): EventsClient {
           id: newId(),
           channel,
           events: events.map((e) => JSON.stringify(e)),
-          ephemeral: isEphemeral(channel),
+          ephemeral: publishOptions?.ephemeral ?? isEphemeral(channel),
+          queuedAt: Date.now(),
+          attempts: 0,
           resolve,
           reject,
         };
@@ -339,6 +412,18 @@ export function createEventsClient(options: EventsClientOptions): EventsClient {
       statusListeners.add(cb);
       cb(status);
       return () => statusListeners.delete(cb);
+    },
+
+    reconnect() {
+      if (isClosed) return;
+      clearTimeout(reconnectTimer);
+      clearTimeout(handshakeTimer);
+      clearTimeout(keepAliveTimer);
+      if (socket) detach(socket);
+      socket = null;
+      recoverInflight();
+      setStatus({ state: 'reconnecting', attempt: 0 });
+      connect();
     },
 
     close() {

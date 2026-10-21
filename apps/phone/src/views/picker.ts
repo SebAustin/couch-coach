@@ -24,6 +24,7 @@ export const pickerView: ViewFactory = (vm, actions) => {
   const status = h('p', { class: 'hint', role: 'status' });
   const retry = button('Try loading again', actions.retryModel, 'quiet');
   const start = button('Start Set', actions.startSet);
+  const flip = button('Flip camera', actions.flipCamera, 'quiet');
   const debug = button('Debug', actions.toggleDebug, 'quiet', { 'aria-pressed': 'false' });
   const el = h(
     'section',
@@ -39,7 +40,7 @@ export const pickerView: ViewFactory = (vm, actions) => {
       h(
         'div',
         { class: 'tools' },
-        button('Flip camera', actions.flipCamera, 'quiet'),
+        flip,
         debug,
         button('Export last 30 s', actions.exportFrames, 'quiet'),
       ),
@@ -55,6 +56,7 @@ export const pickerView: ViewFactory = (vm, actions) => {
     const ready = next.modelState === 'ready';
     start.disabled = !ready || next.exercise === null;
     retry.hidden = next.modelState !== 'error';
+    flip.disabled = next.busy;
     debug.setAttribute('aria-pressed', String(next.debugOn));
     status.textContent = next.notice
       ? next.notice

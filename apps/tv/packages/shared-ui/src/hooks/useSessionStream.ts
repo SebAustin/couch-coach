@@ -9,14 +9,16 @@ import { channels, CoachMessage, PhoneEvent, PoseBatch, type ClientConfig } from
 export const COACH_TIMEOUT_MS = 12_000;
 /** The "Coach is quiet" card hides itself after this long. */
 export const QUIET_CARD_MS = 8_000;
-/** Max time to wait for the TV's own `end_session` publish before showing the Recap anyway. */
-const END_PUBLISH_TIMEOUT_MS = 2_000;
+/** Max time the connection is kept open for the TV's own `end_session` publish (the Recap does not wait). */
+export const END_PUBLISH_TIMEOUT_MS = 5_000;
 
 export interface Telemetry {
   /** TV clock (ms) when the last PoseBatch arrived; 0 before the first. */
   lastPoseAt: number;
-  /** TV clock (ms) of the last event of any kind. */
+  /** TV clock (ms) of the last event of any kind (including Coach messages). */
   lastEventAt: number;
+  /** TV clock (ms) of the last PHONE signal: presence, PoseBatch or any phone event. Coach messages do not count. */
+  lastSignalAt: number;
   /** now - frame.t at arrival (negative or large values mean the TV and phone clocks disagree), or null when t is not epoch ms. */
   receiveLatencyMs: number | null;
   poseBatches: number;
@@ -31,8 +33,14 @@ export interface SessionStream {
   /** Mutable counters read by the render loop and debug overlay; never trigger renders. */
   telemetry: MutableRefObject<Telemetry>;
   dismissCue(): void;
-  /** Tells the phone (best effort) that the TV ended the Session. */
+  /**
+   * Tells the phone (best effort) that the TV ended the Session. The returned promise settles when the publish is
+   * acknowledged, fails, or after 5 s; callers should not block the Recap on it. `close()` and unmount wait for it.
+   */
   endSession(): Promise<void>;
+  /** Ask the events client to drop and re-establish its socket. */
+  reconnect(): void;
+  /** Close the connection (deferred until a pending end_session publish settles). */
   close(): void;
 }
 
@@ -42,10 +50,14 @@ export interface SessionStreamOptions {
   now?: () => number;
 }
 
+/** The vendored events client has `reconnect()`; the optional call keeps older copies and test doubles working. */
+type MaybeReconnectable = EventsClient & { reconnect?: () => void };
+
 const INITIAL_STATUS: EventsStatus = { state: 'connecting', attempt: 0 };
 const newTelemetry = (): Telemetry => ({
   lastPoseAt: 0,
   lastEventAt: 0,
+  lastSignalAt: 0,
   receiveLatencyMs: null,
   poseBatches: 0,
   invalidMessages: 0,
@@ -64,9 +76,21 @@ export function useSessionStream(sessionId: string | null, options: SessionStrea
   const clientRef = useRef<EventsClient | null>(null);
   const sessionRef = useRef<string | null>(sessionId);
   sessionRef.current = sessionId;
+  /** The in-flight end_session publish; closing the client waits for it so the phone actually hears it. */
+  const pendingEnd = useRef<Promise<void> | null>(null);
+  const closing = useRef(new WeakSet<EventsClient>());
+
+  const closeWhenSettled = useCallback((client: EventsClient) => {
+    if (closing.current.has(client)) return;
+    closing.current.add(client);
+    const pending = pendingEnd.current;
+    if (pending) void pending.then(() => client.close());
+    else client.close();
+  }, []);
 
   useEffect(() => {
     bufferRef.current.reset();
+    pendingEnd.current = null;
     telemetry.current = newTelemetry();
     dispatch({ kind: 'reset' });
     setConnection(INITIAL_STATUS);
@@ -88,6 +112,7 @@ export function useSessionStream(sessionId: string | null, options: SessionStrea
       const parsed = PhoneEvent.safeParse(raw);
       if (!parsed.success) return reject();
       telemetry.current.lastEventAt = now();
+      telemetry.current.lastSignalAt = now();
       dispatch({ kind: 'phone', event: parsed.data });
     });
     const offCoach = client.subscribe(ch.coach, (raw) => {
@@ -103,6 +128,7 @@ export function useSessionStream(sessionId: string | null, options: SessionStrea
       const newest = parsed.data.frames[parsed.data.frames.length - 1]!;
       bufferRef.current.pushBatch(parsed.data, arrival);
       const t = telemetry.current;
+      t.lastSignalAt = arrival;
       if (t.poseBatches === 0) dispatch({ kind: 'pose_seen' }); // first valid batch: the phone is there
       t.lastPoseAt = arrival;
       t.lastEventAt = arrival;
@@ -115,7 +141,7 @@ export function useSessionStream(sessionId: string | null, options: SessionStrea
       offCoach();
       offEvents();
       offStatus();
-      client.close();
+      closeWhenSettled(client);
       if (clientRef.current === client) clientRef.current = null;
     };
     // The client is intentionally recreated only when the Session changes.
@@ -137,29 +163,34 @@ export function useSessionStream(sessionId: string | null, options: SessionStrea
 
   const dismissCue = useCallback(() => dispatch({ kind: 'dismiss_cue' }), []);
 
-  const endSession = useCallback(async () => {
+  const endSession = useCallback((): Promise<void> => {
     const client = clientRef.current;
     const id = sessionRef.current;
-    if (!client || !id) return;
+    if (!client || !id) return Promise.resolve();
     const event: PhoneEvent = { type: 'control', action: 'end_session', t: now() };
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<void>((resolve) => {
       timer = setTimeout(resolve, END_PUBLISH_TIMEOUT_MS);
     });
-    try {
-      await Promise.race([client.publish(channels(id).events, [event]), timeout]);
-    } catch {
-      // The phone also ends on its own when the TV goes quiet; never block the Recap on this.
-    } finally {
-      clearTimeout(timer);
-    }
+    const settled = Promise.race([client.publish(channels(id).events, [event]), timeout])
+      .catch(() => {
+        // Best effort: if this fails the phone stays on its Live screen until the person taps Finish there.
+      })
+      .finally(() => clearTimeout(timer));
+    pendingEnd.current = settled;
+    return settled;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const close = useCallback(() => {
-    clientRef.current?.close();
-    clientRef.current = null;
+  const reconnect = useCallback(() => {
+    (clientRef.current as MaybeReconnectable | null)?.reconnect?.();
   }, []);
 
-  return { state, connection, buffer: bufferRef.current, telemetry, dismissCue, endSession, close };
+  const close = useCallback(() => {
+    const client = clientRef.current;
+    clientRef.current = null;
+    if (client) closeWhenSettled(client);
+  }, [closeWhenSettled]);
+
+  return { state, connection, buffer: bufferRef.current, telemetry, dismissCue, endSession, reconnect, close };
 }

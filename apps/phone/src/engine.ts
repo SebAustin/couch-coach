@@ -5,7 +5,10 @@ import type { SkeletonOverlay } from './overlay';
 /** A detected pose with the wall-clock capture time (epoch ms). */
 export interface DetectedPose {
   pose: Landmark[];
+  /** Wall-clock capture time (epoch ms): what goes on the wire. */
   t: number;
+  /** Monotonic time in the same units (`timeOrigin + performance.now()`): what the rep counter gets. */
+  mono: number;
 }
 
 export interface Engine {
@@ -66,7 +69,7 @@ export function createEngine(opts: {
     }
     stamps = [...stamps.filter((s) => nowPerf - s < FPS_WINDOW_MS), nowPerf];
     opts.overlay.draw(pose);
-    opts.onPose(pose ? { pose, t: Date.now() } : null);
+    opts.onPose(pose ? { pose, t: Date.now(), mono: performance.timeOrigin + nowPerf } : null);
   }
 
   return {

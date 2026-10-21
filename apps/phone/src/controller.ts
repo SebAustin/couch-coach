@@ -1,14 +1,17 @@
 import type { PoseLandmarker } from '@mediapipe/tasks-vision';
 import { createCounter } from 'pose-reps';
 import { encodeFrame, type ClientConfig, type CoachMessage, type Exercise, type PhoneEvent } from '@couch-coach/protocol';
-import { closeCamera, createWakeLock, openCamera, type Facing } from './camera';
+import { closeCamera, createWakeLock, openCamera, videoTrack, type Facing } from './camera';
 import { clear, h } from './dom';
 import { createEngine, type DetectedPose, type Engine } from './engine';
+import { openWithFallback } from './logic/camera-fallback';
 import { createFrameBatcher } from './logic/frame-batcher';
 import { createFrameRing } from './logic/frame-ring';
 import { createFramingTracker } from './logic/framing';
 import { idleStatus } from './logic/idle';
+import { createPresenceTracker } from './logic/presence';
 import { createSetRunner, type SetRunner } from './logic/set-runner';
+import { button } from './views/ui';
 import { createSessionNet, type SessionNet } from './net';
 import { createOverlay, type SkeletonOverlay } from './overlay';
 import { loadPoseLandmarker } from './pose';
@@ -22,6 +25,7 @@ const END_PUBLISH_GRACE_MS = 1_500;
 const EXPORT_WINDOW_MS = 30_000;
 const DEBUG_REFRESH_MS = 500;
 const ASPECT_RESEND_THRESHOLD = 0.02;
+const PRESENCE_INTERVAL_MS = 2_000;
 
 export interface SessionInfo {
   sessionId: string;
@@ -46,6 +50,8 @@ const INITIAL_VM: Vm = {
   debugOn: false,
   framing: null,
   notice: null,
+  cameraIssue: null,
+  wakeLock: 'ok',
 };
 
 /** Owns the Session: camera, pose engine, Set lifecycle and the wire. Views only render the Vm. */
@@ -53,6 +59,7 @@ export function createController(root: {
   ui: HTMLElement;
   stage: HTMLElement;
   chip: HTMLElement;
+  notice: HTMLElement;
   debug: HTMLElement;
 }) {
   let vm: Vm = INITIAL_VM;
@@ -64,9 +71,10 @@ export function createController(root: {
   const frameEl = h('div', { class: 'frame' }, video, canvas);
   root.stage.append(frameEl);
   const overlay: SkeletonOverlay = createOverlay(canvas);
-  const wakeLock = createWakeLock();
+  const wakeLock = createWakeLock((state) => setVm({ wakeLock: state === 'on' ? 'ok' : 'unavailable' }));
   const ring = createFrameRing(EXPORT_WINDOW_MS);
   const framing = createFramingTracker();
+  const presence = createPresenceTracker();
 
   let session: SessionInfo | null = null;
   let net: SessionNet | null = null;
@@ -81,10 +89,14 @@ export function createController(root: {
   let coachTimer: ReturnType<typeof setTimeout> | undefined;
   let debugTimer: ReturnType<typeof setInterval> | undefined;
   let publishLatencyMs: number | null = null;
+  let presenceTimer: ReturnType<typeof setInterval> | undefined;
+  let isCameraOpen = false;
+  let isRecovering = false;
   let hasEnded = false;
   let setCounter = 0;
 
   // ---- rendering ----------------------------------------------------------
+  let noticeText: string | null = null;
 
   function setVm(patch: Partial<Vm>): void {
     vm = { ...vm, ...patch };
@@ -100,6 +112,7 @@ export function createController(root: {
       view?.update(vm);
     }
     renderChip();
+    renderNotice();
     root.debug.hidden = !vm.debugOn || root.stage.hidden;
   }
 
@@ -108,6 +121,25 @@ export function createController(root: {
     root.chip.hidden = hidden;
     root.chip.className = `chip ${vm.online ? 'chip--on' : 'chip--off'}`;
     root.chip.textContent = vm.online ? 'Connected' : 'Offline. Reconnecting...';
+  }
+
+  /** Persistent notice under the chip: camera trouble first (with a tap target), then the wake-lock note. */
+  function renderNotice(): void {
+    const onCameraScreen = ['paired', 'picker', 'set', 'after'].includes(vm.screen);
+    const text =
+      vm.cameraIssue === 'tap_to_resume'
+        ? 'The camera paused while the app was in the background.'
+        : vm.cameraIssue === 'lost'
+          ? 'The camera stopped.'
+          : vm.wakeLock === 'unavailable'
+            ? "Couldn't keep the screen awake. Turn off auto-lock so your phone doesn't sleep mid-Set."
+            : null;
+    root.notice.hidden = !onCameraScreen || text === null;
+    if (root.notice.hidden || text === noticeText) return;
+    noticeText = text;
+    clear(root.notice);
+    root.notice.append(h('p', {}, text));
+    if (vm.cameraIssue) root.notice.append(button('Tap to resume camera', () => void recoverCamera(true), 'secondary'));
   }
 
   function refreshDebug(): void {
@@ -162,16 +194,21 @@ export function createController(root: {
     if (issue !== vm.framing) setVm({ framing: issue });
   }
 
+  function sendPresence(): void {
+    emit({ type: 'presence', person: presence.person(Date.now()), t: Date.now() });
+  }
+
   function onPose(detected: DetectedPose | null): void {
     trackFraming(detected);
     if (!detected) return;
+    presence.seen(detected.t);
     const frame = encodeFrame(detected.pose, detected.t);
     ring.add(frame);
     batcher.add(frame);
     if (!runner || vm.paused) return;
     let rep: PhoneEvent | null = null;
     try {
-      rep = runner.push(detected.pose, detected.t);
+      rep = runner.push(detected.pose, detected.mono, detected.t);
     } catch (err) {
       console.warn('rep counter rejected a frame', err);
     }
@@ -212,6 +249,8 @@ export function createController(root: {
       setVm({ busy: false, screen: 'denied', cameraReason: result.reason });
       return;
     }
+    isCameraOpen = true;
+    watchTrack();
     applyAspect(result.aspect);
     sendHello();
     void wakeLock.start();
@@ -219,6 +258,66 @@ export function createController(root: {
     void loadModel();
     clearInterval(debugTimer);
     debugTimer = setInterval(refreshDebug, DEBUG_REFRESH_MS);
+    clearInterval(presenceTimer);
+    sendPresence();
+    presenceTimer = setInterval(sendPresence, PRESENCE_INTERVAL_MS);
+  }
+
+  /** iOS can end the video track when the app is interrupted; recover as soon as we notice. */
+  function watchTrack(): void {
+    const track = videoTrack(video);
+    if (track) {
+      track.onended = () => {
+        if (document.visibilityState === 'visible') void recoverCamera(false);
+      };
+    }
+  }
+
+  /**
+   * Get the preview running again after an interruption (page hidden, phone call, tab switch).
+   * `fromTap` marks a user gesture, which iOS needs before it lets a stalled video play again.
+   */
+  async function recoverCamera(fromTap: boolean): Promise<void> {
+    if (hasEnded || !isCameraOpen || isRecovering || vm.busy) return;
+    isRecovering = true;
+    try {
+      const track = videoTrack(video);
+      if (!track || track.readyState === 'ended') {
+        await reopenCamera();
+        return;
+      }
+      try {
+        await video.play();
+        setVm({ cameraIssue: null });
+      } catch (err) {
+        console.warn('video.play() was rejected after the app became visible', err);
+        if (fromTap) await reopenCamera();
+        else setVm({ cameraIssue: 'tap_to_resume' });
+      }
+    } finally {
+      isRecovering = false;
+    }
+  }
+
+  async function reopenCamera(): Promise<void> {
+    engine?.stop();
+    closeCamera(video);
+    const out = await openWithFallback([facing], (f) => openCamera(video, f));
+    if (!out.ok) {
+      setVm({ cameraIssue: 'lost' });
+      return;
+    }
+    watchTrack();
+    applyAspect(out.result.aspect);
+    engine?.start();
+    setVm({ cameraIssue: null });
+  }
+
+  function onVisible(): void {
+    if (document.visibilityState !== 'visible' || hasEnded) return;
+    // The socket may have died while the page was frozen without the browser noticing.
+    net?.client.reconnect();
+    void recoverCamera(false);
   }
 
   function applyAspect(next: number): void {
@@ -229,18 +328,22 @@ export function createController(root: {
   }
 
   async function flipCamera(): Promise<void> {
+    if (vm.busy || hasEnded) return; // one flip at a time
+    setVm({ busy: true, notice: null });
     const previous = facing;
-    facing = facing === 'user' ? 'environment' : 'user';
+    const next: Facing = previous === 'user' ? 'environment' : 'user';
     engine?.stop();
-    closeCamera(video);
-    const result = await openCamera(video, facing);
-    if (result.ok) {
-      applyAspect(result.aspect);
+    closeCamera(video); // release the old tracks first: some phones cannot open two cameras at once
+    const out = await openWithFallback([next, previous], (f) => openCamera(video, f));
+    if (out.ok) {
+      facing = out.facing;
+      watchTrack();
+      applyAspect(out.result.aspect);
+      engine?.start();
+      setVm({ busy: false, cameraIssue: null, notice: out.usedFallback ? "Couldn't switch cameras." : null });
     } else {
-      facing = previous;
-      await openCamera(video, facing); // restore the camera that worked
+      setVm({ busy: false, cameraIssue: 'lost', notice: "Couldn't open either camera." });
     }
-    engine?.start();
   }
 
   // ---- sets ---------------------------------------------------------------
@@ -338,8 +441,10 @@ export function createController(root: {
     hasEnded = true;
     clearInterval(idleTimer);
     clearInterval(debugTimer);
+    clearInterval(presenceTimer);
     clearTimeout(coachTimer);
     runner = null;
+    isCameraOpen = false;
     engine?.stop();
     if (local && net) {
       const grace = new Promise<void>((resolve) => setTimeout(resolve, END_PUBLISH_GRACE_MS));
@@ -395,6 +500,7 @@ export function createController(root: {
       net.client.onStatus((s) => setVm({ online: s.state === 'connected' }));
       net.onCoach(onCoach);
       net.onRemoteEvent(onRemoteEvent);
+      document.addEventListener('visibilitychange', onVisible);
       setVm({ screen: 'prime' });
       if (granted) await allowCamera();
     },

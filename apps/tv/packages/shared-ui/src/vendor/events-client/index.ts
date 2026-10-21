@@ -6,6 +6,7 @@ export type {
   EventsClient,
   EventsClientOptions,
   EventsStatus,
+  PublishOptions,
   WebSocketConstructor,
   WebSocketLike,
 } from './types';

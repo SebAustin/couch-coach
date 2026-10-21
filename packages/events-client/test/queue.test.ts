@@ -83,3 +83,53 @@ describe('publish queue', () => {
     expect(await low).toMatch(/dropped/);
   });
 });
+
+describe('stale pose batches', () => {
+  it('drops queued ephemeral publishes older than 1 s at flush time but keeps fresh ones and events', async () => {
+    const client = make();
+    const ws = FakeWebSocket.last;
+    const old = settle(client.publish('/cc/s/pose', [{ n: 1 }]));
+    const event = client.publish('/cc/s/events', [{ type: 'rep' }]);
+    vi.advanceTimersByTime(1500);
+    const fresh = settle(client.publish('/cc/s/pose', [{ n: 2 }]));
+    ws.ack();
+    expect(await old).toMatch(/stale/);
+    expect(ws.sentOfType('publish').map((m) => m.events)).toEqual([['{"type":"rep"}'], ['{"n":2}']]);
+    ackAll(ws);
+    await expect(event).resolves.toBeUndefined();
+    expect(await fresh).toBe('ok');
+  });
+
+  it('keeps ephemeral publishes younger than the limit', () => {
+    const client = make({ ephemeralMaxAgeMs: 2000 });
+    const ws = FakeWebSocket.last;
+    client.publish('/cc/s/pose', [{ n: 1 }]).catch(() => {});
+    vi.advanceTimersByTime(1500);
+    ws.ack();
+    expect(ws.sentOfType('publish')).toHaveLength(1);
+  });
+});
+
+describe('per-publish ephemeral override', () => {
+  it('lets a caller mark a non-pose publish as ephemeral (e.g. a heartbeat) so it is never replayed late', async () => {
+    const client = make();
+    const first = FakeWebSocket.last;
+    first.ack();
+    const beat = settle(client.publish('/cc/s/events', [{ type: 'presence' }], { ephemeral: true }));
+    first.serverClose();
+    expect(await beat).toMatch(/connection lost/);
+  });
+
+  it('lets a caller mark a pose-channel publish as durable', async () => {
+    const client = make();
+    const first = FakeWebSocket.last;
+    first.ack();
+    const p = client.publish('/cc/s/pose', [{ n: 1 }], { ephemeral: false });
+    first.serverClose();
+    vi.advanceTimersByTime(250);
+    FakeWebSocket.last.ack();
+    expect(FakeWebSocket.last.sentOfType('publish')).toHaveLength(1);
+    ackAll(FakeWebSocket.last);
+    await expect(p).resolves.toBeUndefined();
+  });
+});
