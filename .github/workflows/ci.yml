@@ -32,6 +32,10 @@ jobs:
         if: steps.exists.outputs.yes
         run: |
           for p in packages/protocol packages/events-client; do (cd "$p" && npm ci); done
+          # infra's Lambda entry stubs typecheck the service sources, which need the services' deps too.
+          if [ "${{ matrix.dir }}" = "infra" ]; then
+            for p in services/session services/coach; do (cd "$p" && npm ci); done
+          fi
       - name: Install, typecheck, test
         if: steps.exists.outputs.yes
         working-directory: ${{ matrix.dir }}

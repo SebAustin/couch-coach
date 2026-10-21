@@ -56,7 +56,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function findOrCreateMember(): Promise<Member> {
-  const { members } = await api<{ members: Member[] }>('/members');
+  const { members } = await api<{ members: Member[] }>('/members?includeHidden=1');
   const existing = members.find((m) => m.name === E2E_MEMBER_NAME);
   if (existing) return existing;
   return api<Member>('/members', { method: 'POST', body: JSON.stringify({ name: E2E_MEMBER_NAME }) });

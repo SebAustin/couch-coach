@@ -56,7 +56,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function createSession(): Promise<string> {
-  const { members } = await api<{ members: Member[] }>('/members');
+  const { members } = await api<{ members: Member[] }>('/members?includeHidden=1');
   const member =
     members.find((m) => m.name === DEBUG_MEMBER_NAME) ??
     (await api<Member>('/members', { method: 'POST', body: JSON.stringify({ name: DEBUG_MEMBER_NAME }) }));
