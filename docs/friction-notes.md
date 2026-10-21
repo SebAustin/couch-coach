@@ -13,3 +13,15 @@ Collected from the build agents with exact error text. Only real friction hit du
 - `npm warn install-scripts 1 package has install scripts not yet covered by allowScripts: esbuild@0.28.2 (postinstall: node install.js)`; non-blocking.
 - GitHub Actions warning: `actions/checkout@v4` and `setup-node@v4` target Node 20 and are being forced to Node 24.
 - Calibration is synthetic-only: 2D heuristics depend on camera angle (squat best at ~45° front, jumping jack frontal). No public, labelled MediaPipe-format exercise fixtures were at hand to calibrate against.
+
+## AWS backend (Oct 21)
+- Bedrock: `ResourceNotFoundException: Model use case details have not been submitted for this account. Fill out the Anthropic use case details form before using the model.` for Haiku 4.5, which blocks every Anthropic model until an account-level form is filled. `list-inference-profiles` shows `us.anthropic.claude-haiku-5-5` ACTIVE, yet Converse returns `AccessDeniedException: anthropic.claude-haiku-5-5 is not available for this account.` A listed-as-ACTIVE profile that can't be invoked is misleading.
+- npm ERESOLVE: `peerOptional esbuild@"^0.27.0 || ^0.28.0" from vite@8.3.5` vs esbuild ^0.25; fixed with esbuild ^0.28.2.
+- CDK `NodejsFunction` runs `npx --no-install esbuild` from `projectRoot`: `npx canceled due to missing packages and no YES option: ["esbuild@0.28.2"]`; setting `projectRoot` to infra gives `PathNotUnderRoot`. Workaround: one-line entry stubs in `infra/lambda/*.ts`.
+- ts-node doesn't work with TypeScript 7; `cdk.json` app switched to `node --import tsx bin/app.ts` (`/bin/sh: tsx: command not found` otherwise).
+- `npx tsc` in a package prints `This is not the tsc command you are looking for`; use `npm run typecheck`.
+- `cdk bootstrap` synthesizes the app, so required context (`-c budgetEmail`) must also be passed to bootstrap.
+- Lambda JSON log format double-encodes `JSON.stringify(obj)` into `message`; log the object instead.
+- CloudFront first deploy took 338 s; `minimumProtocolVersion ... has no effect without a custom 'certificate'` warning.
+- `aws-sdk-client-mock`: `DynamoDBDocumentClient.from({})` throws `Cannot destructure property 'protocol' of 'config'`.
+- Positive: `aws-cdk-lib/aws-appsync` `EventApi` L2 (2.274) worked with no Cfn fallback.

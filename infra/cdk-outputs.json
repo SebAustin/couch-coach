@@ -1,0 +1,10 @@
+{
+  "CouchCoachStack": {
+    "apiBaseUrl": "https://hqdsmja1n0.execute-api.us-east-1.amazonaws.com",
+    "eventsApiKey": "da2-sfyemiziujavbprkvh7p6ktiue",
+    "phoneUrl": "https://d36nqce57j19po.cloudfront.net",
+    "eventsHttpHost": "cyorb2e4hbg5bar63mjp575wgy.appsync-api.us-east-1.amazonaws.com",
+    "eventsRealtimeHost": "cyorb2e4hbg5bar63mjp575wgy.appsync-realtime-api.us-east-1.amazonaws.com",
+    "bedrockProfileId": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  }
+}

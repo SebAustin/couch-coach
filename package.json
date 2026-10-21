@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "for d in packages/* services/* apps/phone infra; do [ -f $d/package.json ] && (cd $d && npm test --if-present) || exit 1; done",
-    "typecheck": "for d in packages/* services/* apps/phone infra; do [ -f $d/package.json ] && (cd $d && npm run typecheck --if-present) || exit 1; done"
+    "test": "for d in packages/* services/* apps/phone infra; do [ ! -f $d/package.json ] || (cd $d && npm test --if-present) || exit 1; done",
+    "typecheck": "for d in packages/* services/* apps/phone infra; do [ ! -f $d/package.json ] || (cd $d && npm run typecheck --if-present) || exit 1; done"
   },
   "engines": {
     "node": ">=22"

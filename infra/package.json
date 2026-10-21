@@ -1,0 +1,25 @@
+{
+  "name": "@couch-coach/infra",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "synth": "cdk synth -c budgetEmail=${BUDGET_EMAIL:?set BUDGET_EMAIL}",
+    "write-client-config": "tsx scripts/write-client-config.ts"
+  },
+  "dependencies": {
+    "@couch-coach/protocol": "file:../packages/protocol",
+    "aws-cdk-lib": "2.274.0",
+    "constructs": "^10.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "aws-cdk": "^2.1146.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.20.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
