@@ -16,6 +16,9 @@ Deadline: **Fri 2026-10-23 12:00 PT**. Plan of record: `PLAN.md` (r4).
 
 - First live phone test (Oct 21 12:40): squats + jumping jacks counted on the real camera, real Haiku Cues with memory. Framing banner added after the "camera doesn't work" report (cause: legs out of frame).
 
+- TV app built (Expo 54 / react-native-tvos 0.81): ARM-only APK of 33 MB, 100 jest tests, verified on the Android TV emulator against the live API.
+- pose-reps v0.1.1: frame gate, smoothing, minRepMs, conservative faults; the real recorded set is a regression fixture (6 clean reps, 0 faults).
+
 ## Known issues
 - heels_rising fires on every squat rep in live use; probably a 2D false positive. Tune with an exported real fixture.
 - Pose rate on the phone varied 7.5–15 fps in the live test (SC2 target is ≥ 15).
@@ -34,7 +37,7 @@ Deadline: **Fri 2026-10-23 12:00 PT**. Plan of record: `PLAN.md` (r4).
 
 ## Waiting on the user
 - Confirm the AWS SNS subscription email for the coach alarms.
-- Checkpoint 1 (Oct 22): enable ADB debugging on the Fire TV and give its IP.
+- Checkpoint 1: run `bash apps/tv/scripts/fire-tv-wizard.sh` (mattpocock `wizard`) to sideload onto the Fire TV and do a first live Session.
 - Checkpoint 2: film the video, upload to YouTube, submit on Devpost, decide on npm publish.
 
 ## After judging

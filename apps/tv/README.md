@@ -14,6 +14,10 @@ the video player and the sample screens were removed. We target Fire OS only (si
 
 Screenshots named `tv-*` come from the Android TV emulator (real APK, real API). `web-*` come from the Expo web target.
 
+## Install on a real Fire TV (guided)
+
+`bash scripts/fire-tv-wizard.sh` walks you through it step by step: turn on ADB debugging on the Fire TV, find its IP, accept the debugging prompt, install the APK, and run a first live Session with a short checklist. It remembers the TV's IP in `apps/tv/.env.local` (gitignored).
+
 ## Quick start
 
 ```bash
