@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { isTrustedAudioUrl } from '../lib/audioUrl';
 
 export type CueAudioState = 'none' | 'loading' | 'playing' | 'idle' | 'unavailable';
 
@@ -10,7 +11,8 @@ const LOAD_TIMEOUT_MS = 8000;
  * Plays the Cue's Polly audio once when it is ready. Audio is a bonus: the Cue card is the caption, so any
  * failure (blocked autoplay, 403 on an expired presigned URL, no network) only changes the label.
  */
-export function useCueAudio(audioUrl: string | undefined): { state: CueAudioState; replay: () => void } {
+export function useCueAudio(cueAudioUrl: string | undefined): { state: CueAudioState; replay: () => void } {
+  const audioUrl = isTrustedAudioUrl(cueAudioUrl) ? cueAudioUrl : undefined;
   const player = useAudioPlayer(audioUrl ? { uri: audioUrl } : null);
   const status = useAudioPlayerStatus(player);
   const started = useRef(false);
