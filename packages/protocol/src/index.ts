@@ -67,6 +67,9 @@ export const PhoneEvent = z.discriminatedUnion('type', [
     aspect: z.number().positive().optional(),
     t: z.number(),
   }),
+  /** Liveness heartbeat every ~2 s, sent even when no person is detected, so the TV can tell
+   * "phone gone" (no presence) from "nobody in frame" (presence with person: false). */
+  z.object({ type: z.literal('presence'), person: z.boolean(), t: z.number() }),
   z.object({ type: z.literal('set_start'), exercise: Exercise, t: z.number() }),
   z.object({
     type: z.literal('rep'),

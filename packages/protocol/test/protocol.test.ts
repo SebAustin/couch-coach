@@ -55,6 +55,11 @@ describe('phone events', () => {
     expect(e.type === 'hello' && e.aspect).toBeCloseTo(0.5625);
   });
 
+  it('parses a presence heartbeat without a person in frame', () => {
+    const e = PhoneEvent.parse({ type: 'presence', person: false, t: 1 });
+    expect(e.type === 'presence' && e.person).toBe(false);
+  });
+
   it('rejects an unknown exercise', () => {
     expect(
       PhoneEvent.safeParse({ type: 'set_start', exercise: 'burpee', t: 1 }).success,
