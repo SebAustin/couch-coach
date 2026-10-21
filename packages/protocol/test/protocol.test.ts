@@ -50,6 +50,11 @@ describe('phone events', () => {
     expect(e.type).toBe('rep');
   });
 
+  it('parses a hello with the camera aspect ratio', () => {
+    const e = PhoneEvent.parse({ type: 'hello', memberId: 'm1', aspect: 9 / 16, t: 1 });
+    expect(e.type === 'hello' && e.aspect).toBeCloseTo(0.5625);
+  });
+
   it('rejects an unknown exercise', () => {
     expect(
       PhoneEvent.safeParse({ type: 'set_start', exercise: 'burpee', t: 1 }).success,

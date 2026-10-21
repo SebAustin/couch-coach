@@ -58,9 +58,15 @@ export const SetSummary = z.object({
 });
 export type SetSummary = z.infer<typeof SetSummary>;
 
-/** Published on /cc/<sessionId>/events by the Camera Phone. */
+/** Published on /cc/<sessionId>/events by the Camera Phone; the TV also publishes `control: end_session` there. */
 export const PhoneEvent = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('hello'), memberId: z.string(), t: z.number() }),
+  z.object({
+    type: z.literal('hello'),
+    memberId: z.string(),
+    /** Camera frame aspect ratio (width / height) so the TV can lay out the skeleton. */
+    aspect: z.number().positive().optional(),
+    t: z.number(),
+  }),
   z.object({ type: z.literal('set_start'), exercise: Exercise, t: z.number() }),
   z.object({
     type: z.literal('rep'),
