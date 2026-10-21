@@ -1,0 +1,12 @@
+node_modules/
+dist/
+!pose-reps-dist/
+cdk.out/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.venv/
+__pycache__/
