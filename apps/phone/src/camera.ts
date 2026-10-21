@@ -4,6 +4,34 @@ export type CameraResult =
   | { ok: true; stream: MediaStream; aspect: number }
   | { ok: false; reason: 'denied' | 'unavailable' | 'insecure'; message: string };
 
+const PORTRAIT_ASPECT = 9 / 16;
+
+/** Some browsers ignore `ideal` portrait sizes and hand back a landscape frame even when the phone is upright,
+ * which leaves the Member tiny in frame and the landmarks noisy. Retry once with an exact 9:16 aspect. */
+async function requestPortraitIfNeeded(video: HTMLVideoElement, stream: MediaStream, facing: Facing): Promise<MediaStream> {
+  const screenIsPortrait = window.innerHeight > window.innerWidth;
+  if (!screenIsPortrait || video.videoWidth <= video.videoHeight) return stream;
+  try {
+    const portrait = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: { ideal: facing },
+        aspectRatio: { exact: PORTRAIT_ASPECT },
+        height: { ideal: 1280 },
+        frameRate: { ideal: 30 },
+      },
+    });
+    stream.getTracks().forEach((t) => t.stop());
+    video.srcObject = portrait;
+    await video.play();
+    await waitForDimensions(video);
+    return portrait;
+  } catch (err) {
+    console.warn('portrait camera frame not available; keeping landscape', err);
+    return stream;
+  }
+}
+
 /** Open the camera. Portrait 720x1280 is requested; the real size is read back from the stream. */
 export async function openCamera(video: HTMLVideoElement, facing: Facing): Promise<CameraResult> {
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -18,14 +46,21 @@ export async function openCamera(video: HTMLVideoElement, facing: Facing): Promi
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
-      video: { facingMode: { ideal: facing }, width: { ideal: 720 }, height: { ideal: 1280 }, frameRate: { ideal: 30 } },
+      video: {
+        facingMode: { ideal: facing },
+        width: { ideal: 720 },
+        height: { ideal: 1280 },
+        aspectRatio: { ideal: PORTRAIT_ASPECT },
+        frameRate: { ideal: 30 },
+      },
     });
     video.srcObject = stream;
     video.muted = true;
     video.playsInline = true;
     await video.play();
     await waitForDimensions(video);
-    return { ok: true, stream, aspect: video.videoWidth / video.videoHeight };
+    const finalStream = await requestPortraitIfNeeded(video, stream, facing);
+    return { ok: true, stream: finalStream, aspect: video.videoWidth / video.videoHeight };
   } catch (err) {
     const name = (err as DOMException).name;
     if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'PermissionDeniedError') {

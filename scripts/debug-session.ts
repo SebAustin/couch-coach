@@ -6,9 +6,13 @@
  *
  * Summary lines are only printed when the visibility profile changes (25% buckets) or every 20 s.
  *
- * Usage: npx tsx debug-session.ts [minutes] [existing sessionId to re-attach to]
+ * With RECORD_DIR set, every Set is also saved (from set_start to set_end) as a
+ * `couch-coach-landmarks/1` file, the same format as the phone's "Export last 30 s".
+ *
+ * Usage: [RECORD_DIR=dir] npx tsx debug-session.ts [minutes] [existing sessionId to re-attach to]
  */
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createEventsClient } from '@couch-coach/events-client';
 import {
   ClientConfig,
@@ -18,6 +22,7 @@ import {
   type Member,
   PhoneEvent,
   PoseBatch,
+  type PoseFrame,
   SessionResponse,
 } from '@couch-coach/protocol';
 
@@ -36,6 +41,7 @@ const VISIBLE = 0.5;
 const QUIET_REPEAT_MS = 20_000;
 const minutes = Number(process.argv[2] ?? 20);
 const reattachSessionId = process.argv[3];
+const recordDir = process.env.RECORD_DIR;
 const config = ClientConfig.parse(
   JSON.parse(readFileSync(new URL('../infra/client-config.json', import.meta.url), 'utf8')),
 );
@@ -64,6 +70,8 @@ async function createSession(): Promise<string> {
 async function main() {
   const sessionId = reattachSessionId ?? (await createSession());
   const ch = channels(sessionId);
+  let recording: { exercise: string; frames: PoseFrame[] } | null = null;
+  let aspect: number | null = null;
   let lastProfile = '';
   let lastPrintedAt = 0;
 
@@ -83,6 +91,7 @@ async function main() {
     const batch = PoseBatch.safeParse(event);
     if (!batch.success) return console.log(`bad pose batch: ${batch.error.issues[0]?.message}`);
     batches++;
+    recording?.frames.push(...batch.data.frames);
     for (const frame of batch.data.frames) {
       frames++;
       const { pose } = decodeFrame(frame);
@@ -95,6 +104,17 @@ async function main() {
   tv.subscribe(ch.events, (event) => {
     const e = PhoneEvent.safeParse(event);
     console.log(e.success ? `event ${JSON.stringify(e.data)}` : `bad event ${JSON.stringify(event)}`);
+    if (!e.success || !recordDir) return;
+    if (e.data.type === 'hello') aspect = e.data.aspect ?? aspect;
+    if (e.data.type === 'set_start') recording = { exercise: e.data.exercise, frames: [] };
+    if (e.data.type === 'set_end' && recording) {
+      mkdirSync(recordDir, { recursive: true });
+      const path = join(recordDir, `couch-coach-landmarks-set${e.data.setIndex}-${e.data.t}.json`);
+      const doc = { format: 'couch-coach-landmarks/1', exercise: recording.exercise, aspect, exportedAt: e.data.t, frames: recording.frames };
+      writeFileSync(path, JSON.stringify(doc));
+      console.log(`RECORDED ${recording.frames.length} frames → ${path}`);
+      recording = null;
+    }
   });
   tv.subscribe(ch.coach, (event) => {
     const m = CoachMessage.safeParse(event);
