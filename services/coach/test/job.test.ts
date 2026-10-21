@@ -73,7 +73,7 @@ describe('runCoachJob: happy path', () => {
 
     const input = mocks.bedrock.commandCalls(ConverseCommand)[0]!.args[0].input;
     expect(input.modelId).toBe('us.anthropic.claude-haiku-4-5-20251001-v1:0');
-    expect(input.system![0]).toMatchObject({ text: expect.stringContaining('at most two sentences') });
+    expect(input.system![0]).toMatchObject({ text: expect.stringContaining('at most two short sentences') });
     const user = (input.messages![0]!.content![0] as { text: string }).text;
     expect(user).toContain('Sam');
     expect(user).toContain('knees caving x2');

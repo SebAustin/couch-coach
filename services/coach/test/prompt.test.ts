@@ -25,7 +25,12 @@ describe('buildCoachPrompt: system prompt', () => {
   const { system } = buildCoachPrompt({ memberName: 'Sam', setIndex: 2, set, history: [], nowMs: NOW });
 
   it('constrains the reply to at most two upbeat sentences', () => {
-    expect(system).toMatch(/at most two sentences/i);
+    expect(system).toMatch(/at most two short sentences/i);
+    expect(system).toMatch(/no more than 35 words/i);
+  });
+
+  it('forbids inventing faults or body parts that are not in the data', () => {
+    expect(system).toMatch(/never invent other body parts, faults or sessions/i);
     expect(system).toMatch(/upbeat/i);
   });
 

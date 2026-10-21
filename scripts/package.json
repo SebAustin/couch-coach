@@ -1,0 +1,19 @@
+{
+  "name": "@couch-coach/scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "e2e": "tsx e2e-replay.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@couch-coach/events-client": "file:../packages/events-client",
+    "@couch-coach/protocol": "file:../packages/protocol",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
