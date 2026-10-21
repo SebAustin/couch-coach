@@ -55,6 +55,12 @@ describe('reserveCoachCall', () => {
     expect(result).toEqual({ ok: false, reason: 'no_session' });
   });
 
+  it('treats a session row without a memberId as no session rather than the member "undefined"', async () => {
+    ddbMock.on(UpdateCommand).resolves({ Attributes: { coachCalls: 1 } });
+
+    expect(await reserveCoachCall(ddb, 'tbl', SID)).toEqual({ ok: false, reason: 'no_session' });
+  });
+
   it('propagates unexpected DynamoDB failures', async () => {
     ddbMock.on(UpdateCommand).rejects(new Error('throttled'));
 

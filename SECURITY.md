@@ -276,3 +276,14 @@ A correct security control applied in the wrong place usually does not return a 
 3. M2: a closed fault-id set, and no echoed cues in the prompt.
 4. L3: remove the attach link from release builds. L5: add the CloudFront security headers policy.
 5. After judging: revoke the AppSync key and `cdk destroy`, as STATUS already plans. M1 is the first item if the project continues.
+
+## Remediation status (2026-10-21, deployed)
+
+| Finding | Status | What was done |
+|---|---|---|
+| H1 wildcard read and Cue injection | **Fixed** (residual noted) | `onSubscribe` handlers on `cc` and `coach` accept only exact `/cc/<32-hex>/<segment>` and `/coach/<32-hex>` channels; `/cc/*`, `/coach/*` and `/*` are rejected (verified live). Coach messages moved to the `coach` namespace: API-key subscribe, **IAM-only publish** (the coach Lambda signs with SigV4; the API key returns 401 there). `EVENTS_API_KEY` removed from the Lambda. The TV plays audio only from S3 over HTTPS. **Residual:** someone who sees a Session's QR can publish noise into that Session's `/cc/<id>/pose` and `/events` for up to 2 h; closing that needs an `AWS_LAMBDA` authorizer (not built). |
+| H2 unbounded spend | **Fixed** | Coach reserved concurrency 3; global daily ceiling of 300 coach calls (`QUOTA#<date>` conditional update, after the per-Session cap); per-route throttles (`POST /session` and `POST /members` 1 rps / burst 3, `POST /coach` 3/6, `GET /members` 3/6); 5-minute alarms on Bedrock invocations, Polly characters and coach invocations. **Residual:** an attacker can exhaust the daily 300 and deny the coach to everyone until UTC midnight (bounded cost, not unbounded). |
+| M2 memory poisoning | **Fixed** | Server keeps only the six known fault ids and bounds reps, duration and counts; earlier Cue text is no longer fed back into the prompt. |
+| M3 shared throttle | **Mitigated** | Per-route throttle buckets. |
+| M1 shared default Household | Open (accepted for the hackathon) | Members are display names only, no login (PLAN non-goal). |
+| LOW items | Open | Tracked above; none affects the demo's safety. |

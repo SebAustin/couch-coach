@@ -21,6 +21,7 @@ import * as sns from 'aws-cdk-lib/aws-sns';
 import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
 import type { Construct } from 'constructs';
 import { bedrockInvokeArns } from './bedrock-arns';
+import { CC_NAMESPACE, CC_SUBSCRIBE_CODE, COACH_NAMESPACE, COACH_SUBSCRIBE_CODE } from './event-handlers';
 
 const here = (rel: string) => fileURLToPath(new URL(rel, import.meta.url));
 // NodejsFunction bundles with `npx --no-install esbuild` run from projectRoot, so projectRoot must be the
@@ -34,6 +35,16 @@ export const EVENTS_API_KEY_EXPIRES = '2026-12-15T00:00:00Z';
 export const MEMBERS_INDEX = 'byHousehold';
 export const COACH_FUNCTION_NAME = 'couch-coach-coach';
 export const THROTTLE = { rateLimit: 5, burstLimit: 10 } as const;
+/** Per-route limits: session/member creation is cheap to abuse, so it gets far less than the stage default. */
+export const ROUTE_THROTTLES = {
+  'POST /session': { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 3 },
+  'POST /members': { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 3 },
+  'GET /members': { ThrottlingRateLimit: 3, ThrottlingBurstLimit: 6 },
+  'POST /coach': { ThrottlingRateLimit: 3, ThrottlingBurstLimit: 6 },
+} as const;
+/** Spend guards: the coach can never run more than this many copies at once, or this many calls a day. */
+export const COACH_RESERVED_CONCURRENCY = 3;
+export const DAILY_COACH_LIMIT = 300;
 const BUDGET_USD = 50;
 
 export class CouchCoachStack extends cdk.Stack {
@@ -89,13 +100,28 @@ export class CouchCoachStack extends cdk.Stack {
             authorizationType: appsync.AppSyncAuthorizationType.API_KEY,
             apiKeyConfig: { name: 'couch-coach-client', description: 'Public client key for /cc/*', expires: apiKeyExpiry },
           },
+          // Server-side publisher (the coach Lambda signs with SigV4). Clients never use this mode.
+          { authorizationType: appsync.AppSyncAuthorizationType.IAM },
         ],
         connectionAuthModeTypes: [appsync.AppSyncAuthorizationType.API_KEY],
         defaultPublishAuthModeTypes: [appsync.AppSyncAuthorizationType.API_KEY],
         defaultSubscribeAuthModeTypes: [appsync.AppSyncAuthorizationType.API_KEY],
       },
     });
-    events.addChannelNamespace('cc', { channelNamespaceName: 'cc' });
+    // Phone <-> TV traffic (pose, events). API-key publish and subscribe, but no wildcard subscriptions.
+    events.addChannelNamespace('cc', {
+      channelNamespaceName: CC_NAMESPACE,
+      code: appsync.Code.fromInline(CC_SUBSCRIBE_CODE),
+    });
+    // Coach Cues: only IAM (the coach Lambda) may publish; clients can subscribe with the API key.
+    const coachNamespace = events.addChannelNamespace('coach', {
+      channelNamespaceName: COACH_NAMESPACE,
+      code: appsync.Code.fromInline(COACH_SUBSCRIBE_CODE),
+      authorizationConfig: {
+        publishAuthModeTypes: [appsync.AppSyncAuthorizationType.IAM],
+        subscribeAuthModeTypes: [appsync.AppSyncAuthorizationType.API_KEY],
+      },
+    });
     const eventsApiKey = Object.values(events.apiKeys)[0]!.attrApiKey;
 
     // ------------------------------------------------------------ phone web
@@ -153,12 +179,13 @@ export class CouchCoachStack extends cdk.Stack {
       description: 'Couch Coach: Cue generation (Bedrock Converse + Polly + AppSync Events)',
       memorySize: 512,
       timeout: cdk.Duration.seconds(30),
+      reservedConcurrentExecutions: COACH_RESERVED_CONCURRENCY,
       environment: {
         TABLE_NAME: table.tableName,
         HMAC_SECRET_ARN: hmacSecret.secretArn,
         AUDIO_BUCKET: audioBucket.bucketName,
         EVENTS_HTTP_HOST: events.httpDns,
-        EVENTS_API_KEY: eventsApiKey,
+        DAILY_COACH_LIMIT: String(DAILY_COACH_LIMIT),
         MODEL_ID: modelProfile,
         POLLY_VOICE_ID: 'Matthew',
         SELF_FUNCTION_NAME: COACH_FUNCTION_NAME,
@@ -177,6 +204,7 @@ export class CouchCoachStack extends cdk.Stack {
     allow(coachFn, ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:Query'], [table.tableArn]);
     allow(coachFn, ['secretsmanager:GetSecretValue'], [hmacSecret.secretArn]);
     allow(coachFn, ['s3:PutObject', 's3:GetObject'], [audioBucket.arnForObjects('audio/*')]);
+    coachNamespace.grantPublish(coachFn); // appsync:EventPublish on the `coach` namespace only
     // Polly SynthesizeSpeech has no resource-level permissions; "*" is what the service requires.
     allow(coachFn, ['polly:SynthesizeSpeech'], ['*']);
     allow(coachFn, ['bedrock:InvokeModel'], bedrockInvokeArns(modelProfile, this.account, this.region));
@@ -197,12 +225,14 @@ export class CouchCoachStack extends cdk.Stack {
         maxAge: cdk.Duration.days(1),
       },
     });
-    new apigw.HttpStage(this, 'DefaultStage', {
+    const stage = new apigw.HttpStage(this, 'DefaultStage', {
       httpApi: api,
       stageName: '$default',
       autoDeploy: true,
       throttle: THROTTLE,
     });
+    // The L2 stage only exposes the default throttle; per-route limits need the underlying CfnStage.
+    (stage.node.defaultChild as apigw.CfnStage).routeSettings = ROUTE_THROTTLES;
     const sessionIntegration = new HttpLambdaIntegration('SessionIntegration', sessionFn);
     api.addRoutes({ path: '/members', methods: [apigw.HttpMethod.GET, apigw.HttpMethod.POST], integration: sessionIntegration });
     api.addRoutes({ path: '/session', methods: [apigw.HttpMethod.POST], integration: sessionIntegration });
@@ -303,6 +333,39 @@ export class CouchCoachStack extends cdk.Stack {
       comparisonOperator: cw.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cw.TreatMissingData.NOT_BREACHING,
     });
+    // Fast spend alarms (the budget email can lag by hours). Thresholds are ~5x a busy demo minute.
+    const spendAlarm = (id: string, description: string, metric: cw.Metric, threshold: number) =>
+      new cw.Alarm(this, id, {
+        alarmDescription: description,
+        metric,
+        threshold,
+        evaluationPeriods: 1,
+        comparisonOperator: cw.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cw.TreatMissingData.NOT_BREACHING,
+      });
+    const fiveMin = cdk.Duration.minutes(5);
+    const spendAlarms = [
+      spendAlarm(
+        'BedrockInvocationsAlarm',
+        'Bedrock Converse invocations spiking (possible abuse)',
+        new cw.Metric({ namespace: 'AWS/Bedrock', metricName: 'Invocations', dimensionsMap: { ModelId: modelProfile }, statistic: 'Sum', period: fiveMin }),
+        40,
+      ),
+      spendAlarm(
+        'PollyCharactersAlarm',
+        'Polly characters synthesised spiking (possible abuse)',
+        new cw.Metric({ namespace: 'AWS/Polly', metricName: 'RequestCharacters', dimensionsMap: { Operation: 'SynthesizeSpeech' }, statistic: 'Sum', period: fiveMin }),
+        6000,
+      ),
+      spendAlarm(
+        'CoachInvocationsAlarm',
+        'Coach Lambda invocations spiking (each coach call is two invocations)',
+        coachFn.metricInvocations({ period: fiveMin, statistic: 'Sum' }),
+        100,
+      ),
+    ];
+    for (const alarm of spendAlarms) alarm.addAlarmAction(alarmAction);
+
     coachApi5xx.addAlarmAction(alarmAction);
     coachErrors.addAlarmAction(alarmAction);
 

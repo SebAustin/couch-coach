@@ -7,6 +7,8 @@ import { verifyPhoneToken } from '../../shared/token';
 import { ddb, getSecretString } from './aws';
 import { reserveCoachCall } from './cap';
 import { config } from './config';
+import { DAILY_COACH_LIMIT, reserveDailyCall } from './quota';
+import { sanitizeSet } from './sanitize';
 import { runCoachJob, type CoachJob } from './job';
 
 const lambda = new LambdaClient({});
@@ -23,8 +25,12 @@ const isJobEvent = (event: unknown): event is JobEvent =>
 async function admit(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
   const parsed = CoachRequest.safeParse(parseJsonBody(event));
   if (!parsed.success) return error(400, 'invalid request');
-  const { sessionId, token, setIndex, set } = parsed.data;
+  const { sessionId, token, setIndex } = parsed.data;
   const { table, secretArn, selfFunctionName } = config();
+
+  const checkedSet = sanitizeSet(parsed.data.set);
+  if (!checkedSet.ok) return error(400, 'invalid request');
+  const set = checkedSet.set;
 
   const check = verifyPhoneToken(token, sessionId, await getSecretString(secretArn), Date.now());
   if (!check.ok) {
@@ -38,6 +44,14 @@ async function admit(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStru
     return reservation.reason === 'cap_exceeded' ? error(429, 'coach call limit reached for this session') : error(401, 'unknown session');
   }
 
+  const dailyLimit = Number(process.env.DAILY_COACH_LIMIT) || DAILY_COACH_LIMIT;
+  // Global daily ceiling, after the per-Session cap so a Session at its limit cannot burn the shared quota.
+  const daily = await reserveDailyCall(ddb, table, Date.now(), dailyLimit);
+  if (!daily.ok) {
+    log('error', 'daily coach ceiling reached', { sessionId, limit: dailyLimit });
+    return error(429, 'daily coach call limit reached, try again tomorrow');
+  }
+
   const job: JobEvent = { kind: 'coach-job', sessionId, memberId: reservation.memberId, call: reservation.call, setIndex, set };
   try {
     await lambda.send(
@@ -48,7 +62,7 @@ async function admit(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStru
     log('error', 'async hand-off failed, running inline', { sessionId, ...errorFields(err) });
     await runCoachJob(job);
   }
-  log('info', 'coach call accepted', { sessionId, call: reservation.call, setIndex });
+  log('info', 'coach call accepted', { sessionId, call: reservation.call, setIndex, droppedFaultKeys: checkedSet.dropped });
   return json(202, { ok: true });
 }
 

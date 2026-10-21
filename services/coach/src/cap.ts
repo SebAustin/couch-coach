@@ -30,11 +30,10 @@ export async function reserveCoachCall(
         ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
       }),
     );
-    return {
-      ok: true,
-      call: Number(out.Attributes?.coachCalls),
-      memberId: String(out.Attributes?.memberId),
-    };
+    const memberId = out.Attributes?.memberId;
+    // A row without a memberId would otherwise become the string "undefined" and pool memory across people.
+    if (typeof memberId !== 'string' || memberId === '') return { ok: false, reason: 'no_session' };
+    return { ok: true, call: Number(out.Attributes?.coachCalls), memberId };
   } catch (err) {
     if (err instanceof ConditionalCheckFailedException) {
       return { ok: false, reason: err.Item ? 'cap_exceeded' : 'no_session' };

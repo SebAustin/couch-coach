@@ -40,7 +40,7 @@ afterEach(() => {
 });
 
 describe('runCoachJob: happy path', () => {
-  it('publishes thinking, then a schema-valid cue with presigned audio, on /cc/<id>/coach', async () => {
+  it('publishes thinking, then a schema-valid cue with presigned audio, on /coach/<id>, IAM-signed', async () => {
     happyPath();
     const { published, fetchMock } = stubEventsFetch();
 
@@ -48,9 +48,10 @@ describe('runCoachJob: happy path', () => {
 
     expect(published.map((p) => p.message.type)).toEqual(['thinking', 'cue']);
     for (const p of published) {
-      expect(p.channel).toBe(`/cc/${SESSION_ID}/coach`);
+      expect(p.channel).toBe(`/coach/${SESSION_ID}`);
       expect(p.url).toBe('https://abc.appsync-api.us-east-1.amazonaws.com/event');
-      expect(p.headers['x-api-key']).toBe('da2-testkey');
+      expect(p.headers['x-api-key']).toBeUndefined();
+      expect(p.headers.authorization ?? p.headers.Authorization).toMatch(/^AWS4-HMAC-SHA256 /);
       expect(CoachMessage.safeParse(p.message).success).toBe(true);
     }
     expect(published[0]!.message).toMatchObject({ type: 'thinking', setIndex: 3 });
@@ -76,9 +77,18 @@ describe('runCoachJob: happy path', () => {
     expect(input.system![0]).toMatchObject({ text: expect.stringContaining('at most two short sentences') });
     const user = (input.messages![0]!.content![0] as { text: string }).text;
     expect(user).toContain('Sam');
-    expect(user).toContain('knees caving x2');
-    expect(user).toContain('yesterday');
-    expect(user).toContain('knees caving x6');
+    expect(user).toContain('knees caving on 2 of 8 reps');
+    expect(user).toContain('Trend: improved vs the last squat set (yesterday). knees caving went from 6 of 10 reps to 2 of 8 reps.');
+  });
+
+  it('calls Bedrock with a capped output and a fixed temperature, never with topP as well', async () => {
+    happyPath();
+    stubEventsFetch();
+
+    await runCoachJob(job);
+
+    const input = mocks.bedrock.commandCalls(ConverseCommand)[0]!.args[0].input;
+    expect(input.inferenceConfig).toEqual({ maxTokens: 80, temperature: 0.4 });
   });
 
   it('loads the last five sets, newest first, for the member', async () => {
@@ -179,6 +189,41 @@ describe('runCoachJob: degradation (the TV never hangs)', () => {
     await runCoachJob(job);
 
     expect(published.at(-1)!.message).not.toHaveProperty('audioUrl');
+  });
+
+  it('aborts a stalled S3 PUT after 3 s and publishes a text-only cue', async () => {
+    happyPath();
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockImplementation((ms) => (ms === 3_000 ? AbortSignal.abort(new DOMException('timed out', 'TimeoutError')) : realTimeout(ms)));
+    // A PUT that never answers on its own: it only ends when its abort signal fires.
+    mocks.s3.reset();
+    mocks.s3.send.callsFake(
+      (_cmd: unknown, opts?: { abortSignal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          const signal = opts?.abortSignal;
+          if (!signal) return;
+          if (signal.aborted) reject(signal.reason);
+          signal.addEventListener('abort', () => reject(signal.reason));
+        }),
+    );
+    const { published } = stubEventsFetch();
+
+    let timeoutsRequested: number[] = [];
+    try {
+      await runCoachJob(job);
+      timeoutsRequested = timeoutSpy.mock.calls.map(([ms]) => ms);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+
+    expect(timeoutsRequested).toContain(3_000);
+    expect(mocks.s3.commandCalls(PutObjectCommand)).toHaveLength(1);
+    const cue = published.at(-1)!.message;
+    expect(cue.type).toBe('cue');
+    expect(cue.text).toContain('Last time your knees caved');
+    expect(cue).not.toHaveProperty('audioUrl');
   });
 
   it('still answers when history cannot be loaded', async () => {

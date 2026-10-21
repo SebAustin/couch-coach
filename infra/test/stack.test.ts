@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { bedrockInvokeArns } from '../lib/bedrock-arns';
+import { CC_SUBSCRIBE_CODE, COACH_SUBSCRIBE_CODE } from '../lib/event-handlers';
 import { COACH_FUNCTION_NAME, CouchCoachStack, DEFAULT_MODEL_PROFILE } from '../lib/couch-coach-stack';
 
 const ACCOUNT = '111122223333';
@@ -27,10 +28,10 @@ const statementsOf = (policyLogicalIdPrefix: string): Statement[] => {
 const actionsOf = (s: Statement) => (Array.isArray(s.Action) ? s.Action : [s.Action]);
 
 describe('AppSync Events', () => {
-  it('creates an Events API with API-key auth for connect, publish and subscribe', () => {
+  it('creates an Events API: API key for clients (connect, publish, subscribe), IAM only for the server', () => {
     template.hasResourceProperties('AWS::AppSync::Api', {
       EventConfig: {
-        AuthProviders: [{ AuthType: 'API_KEY' }],
+        AuthProviders: [{ AuthType: 'API_KEY' }, { AuthType: 'AWS_IAM' }],
         ConnectionAuthModes: [{ AuthType: 'API_KEY' }],
         DefaultPublishAuthModes: [{ AuthType: 'API_KEY' }],
         DefaultSubscribeAuthModes: [{ AuthType: 'API_KEY' }],
@@ -38,8 +39,25 @@ describe('AppSync Events', () => {
     });
   });
 
-  it('exposes the cc channel namespace', () => {
+  it('exposes the cc channel namespace for phone and TV traffic', () => {
     template.hasResourceProperties('AWS::AppSync::ChannelNamespace', { Name: 'cc' });
+  });
+
+  it('makes the coach namespace IAM-publish, API-key-subscribe, so a client key can never forge a Cue', () => {
+    template.hasResourceProperties('AWS::AppSync::ChannelNamespace', {
+      Name: 'coach',
+      PublishAuthModes: [{ AuthType: 'AWS_IAM' }],
+      SubscribeAuthModes: [{ AuthType: 'API_KEY' }],
+    });
+  });
+
+  it('attaches an onSubscribe handler to both namespaces', () => {
+    for (const name of ['cc', 'coach']) {
+      template.hasResourceProperties('AWS::AppSync::ChannelNamespace', {
+        Name: name,
+        CodeHandlers: Match.stringLikeRegexp('export function onSubscribe'),
+      });
+    }
   });
 
   it('issues an API key that expires on 2026-12-15', () => {
@@ -106,6 +124,16 @@ describe('HTTP API', () => {
     });
   });
 
+  it('throttles session and member creation far below the stage default, and gives every route its own limit', () => {
+    const [stage] = Object.values(template.findResources('AWS::ApiGatewayV2::Stage'));
+    const routes = stage!.Properties.RouteSettings;
+
+    expect(routes['POST /session']).toEqual({ ThrottlingRateLimit: 1, ThrottlingBurstLimit: 3 });
+    expect(routes['POST /members']).toEqual({ ThrottlingRateLimit: 1, ThrottlingBurstLimit: 3 });
+    expect(Object.keys(routes).sort()).toEqual(['GET /members', 'POST /coach', 'POST /members', 'POST /session']);
+    for (const r of Object.values(routes) as { ThrottlingRateLimit: number }[]) expect(r.ThrottlingRateLimit).toBeLessThanOrEqual(5);
+  });
+
   it('routes the four documented operations', () => {
     const routes = Object.values(template.findResources('AWS::ApiGatewayV2::Route')).map((r) => r.Properties.RouteKey);
     expect(routes.sort()).toEqual(['GET /members', 'POST /coach', 'POST /members', 'POST /session']);
@@ -132,6 +160,21 @@ describe('Lambdas', () => {
     template.hasResourceProperties('AWS::Lambda::EventInvokeConfig', { MaximumRetryAttempts: 0 });
   });
 
+  it('reserves only 3 concurrent executions for the coach and sets a 300-call daily limit', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: COACH_FUNCTION_NAME,
+      ReservedConcurrentExecutions: 3,
+      Environment: { Variables: Match.objectLike({ DAILY_COACH_LIMIT: '300' }) },
+    });
+  });
+
+  it('gives the coach no API key: it publishes with IAM only', () => {
+    const [coach] = Object.values(template.findResources('AWS::Lambda::Function')).filter((f) => f.Properties.FunctionName === COACH_FUNCTION_NAME);
+    const vars = coach!.Properties.Environment.Variables;
+    expect(Object.keys(vars)).not.toContain('EVENTS_API_KEY');
+    expect(JSON.stringify(vars)).not.toMatch(/ApiKey|da2-/);
+  });
+
   it('never puts the HMAC key itself in the environment, only the secret ARN', () => {
     const json = JSON.stringify(template.toJSON());
     expect(json).not.toContain('resolve:secretsmanager');
@@ -156,6 +199,14 @@ describe('least-privilege IAM', () => {
 
     const self = statements.find((s) => actionsOf(s).includes('lambda:InvokeFunction'))!;
     expect(JSON.stringify(self.Resource)).toContain(`function:${COACH_FUNCTION_NAME}`);
+  });
+
+  it('lets the coach publish to the coach namespace only (appsync:EventPublish, not the whole API)', () => {
+    const publish = statementsOf('CoachFnServiceRoleDefaultPolicy').find((s) => actionsOf(s).includes('appsync:EventPublish'))!;
+
+    expect(actionsOf(publish)).toEqual(['appsync:EventPublish']);
+    expect(JSON.stringify(publish.Resource)).toMatch(/channelNamespace\/coach"/);
+    expect(JSON.stringify(publish.Resource)).not.toMatch(/channelNamespace\/(cc|\*)/);
   });
 
   it('limits the coach to the audio/ prefix of the audio bucket', () => {
@@ -249,6 +300,59 @@ describe('budget and alarms', () => {
   it('alarms on API 5xx and on coach Lambda errors, notifying SNS', () => {
     template.hasResourceProperties('AWS::CloudWatch::Alarm', { MetricName: '5xx', Namespace: 'AWS/ApiGateway', AlarmActions: [Match.anyValue()] });
     template.hasResourceProperties('AWS::CloudWatch::Alarm', { MetricName: 'Errors', Namespace: 'AWS/Lambda', AlarmActions: [Match.anyValue()] });
+  });
+});
+
+describe('spend alarms', () => {
+  const alarms = () => Object.values(template.findResources('AWS::CloudWatch::Alarm')).map((a) => a.Properties);
+
+  it('alarms on Bedrock invocations for the configured profile, Polly characters and coach invocations', () => {
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      Namespace: 'AWS/Bedrock',
+      MetricName: 'Invocations',
+      Dimensions: [{ Name: 'ModelId', Value: DEFAULT_MODEL_PROFILE }],
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      Namespace: 'AWS/Polly',
+      MetricName: 'RequestCharacters',
+      Dimensions: [{ Name: 'Operation', Value: 'SynthesizeSpeech' }],
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', { Namespace: 'AWS/Lambda', MetricName: 'Invocations' });
+  });
+
+  it('notifies the SNS topic from every alarm', () => {
+    expect(alarms()).toHaveLength(5);
+    for (const a of alarms()) expect(a.AlarmActions).toHaveLength(1);
+  });
+});
+
+describe('onSubscribe handler logic', () => {
+  /** Runs the generated handler against a stubbed AppSync `util`, since APPSYNC_JS cannot run locally. */
+  const subscribe = (code: string, path: string) => {
+    const unauthorized = () => {
+      throw new Error('UnauthorizedException');
+    };
+    const body = code.replace(/^import .*$/m, '').replace('export function', 'function');
+    return new Function('util', `${body}; return onSubscribe;`)({ unauthorized })({ info: { channel: { path } } });
+  };
+  const sid = 'ab'.repeat(16);
+
+  it.each([`/cc/${sid}/pose`, `/cc/${sid}/events`])('allows the exact cc channel %s', (path) => {
+    expect(() => subscribe(CC_SUBSCRIBE_CODE, path)).not.toThrow();
+  });
+
+  it.each(['/cc/*', `/cc/${sid}/*`, '/cc/*/pose', '/*', `/cc/${sid}`, `/cc/${sid}/pose/extra`, '/cc/short/pose', `/coach/${sid}`])(
+    'rejects %s on cc',
+    (path) => {
+      expect(() => subscribe(CC_SUBSCRIBE_CODE, path)).toThrow('Unauthorized');
+    },
+  );
+
+  it('allows /coach/<sessionId> and rejects wildcards and other shapes on coach', () => {
+    expect(() => subscribe(COACH_SUBSCRIBE_CODE, `/coach/${sid}`)).not.toThrow();
+    for (const path of ['/coach/*', '/coach', `/coach/${sid}/*`, `/coach/${sid}/x`, `/cc/${sid}/pose`, '/*']) {
+      expect(() => subscribe(COACH_SUBSCRIBE_CODE, path)).toThrow('Unauthorized');
+    }
   });
 });
 

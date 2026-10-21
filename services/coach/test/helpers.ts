@@ -15,7 +15,6 @@ process.env.TABLE_NAME = 'tbl';
 process.env.HMAC_SECRET_ARN = 'arn:secret';
 process.env.AUDIO_BUCKET = 'audio-bucket';
 process.env.EVENTS_HTTP_HOST = 'abc.appsync-api.us-east-1.amazonaws.com';
-process.env.EVENTS_API_KEY = 'da2-testkey';
 process.env.MODEL_ID = 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
 process.env.POLLY_VOICE_ID = 'Matthew';
 process.env.SELF_FUNCTION_NAME = 'couch-coach-coach';
