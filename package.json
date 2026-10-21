@@ -2,16 +2,11 @@
   "name": "couch-coach",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "packages/*",
-    "services/*",
-    "apps/phone",
-    "infra"
-  ],
   "scripts": {
-    "test": "npm run test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present"
+    "test": "for d in packages/* services/* apps/phone infra; do [ -f $d/package.json ] && (cd $d && npm test --if-present) || exit 1; done",
+    "typecheck": "for d in packages/* services/* apps/phone infra; do [ -f $d/package.json ] && (cd $d && npm run typecheck --if-present) || exit 1; done"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  }
 }
