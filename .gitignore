@@ -10,3 +10,6 @@ coverage/
 .DS_Store
 .venv/
 __pycache__/
+
+# demo-video run data: footage, Cue audio, timelines (scripts/video/README.md)
+scripts/video/runs/

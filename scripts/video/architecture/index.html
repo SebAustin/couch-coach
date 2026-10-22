@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Couch Coach Architecture</title>
+<!--
+  Architecture card for the demo video (captured by the Ultrademo web project
+  couch-coach-web-*, flow.mjs). Lamplight tokens from docs/ux.md; facts from
+  docs/architecture.md and README.md. Text labels only, no logos.
+
+  Reveal in 5 steps, driven by the keyboard or a timer so a Playwright flow can step it:
+    ArrowRight / Space / Enter / PageDown  next step     ArrowLeft / PageUp  previous
+    1..5                                    jump          0                    blank
+    ?step=N         start at step N (default 1)
+    ?auto=a,b,c,d   advance to steps 2..5 at a, b, c, d seconds after load
+  The current step is mirrored on <html data-arch-step="N"> and window.arch.step.
+  Design size is 1920x1080; other viewports scale the stage to fit. Captions in
+  the video sit below y=870, so nothing is placed there.
+-->
+<style>
+  @font-face { font-family: 'Bricolage Grotesque'; font-weight: 800; font-display: swap; src: url('fonts/bricolage-grotesque-latin-800-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'Figtree'; font-weight: 500; font-display: swap; src: url('fonts/figtree-latin-500-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'Figtree'; font-weight: 700; font-display: swap; src: url('fonts/figtree-latin-700-normal.woff2') format('woff2'); }
+
+  :root {
+    --bg: #1b1420; --stage: #120d16; --raised: #261c2d; --overlay: #33263c; --line: #4a3a55;
+    --text: #fff4e8; --text-dim: #cdbfd6; --text-muted: #a898b4;
+    --accent: #b9a2ff; --accent-soft: #d9ccff; --on-accent: #1b1420;
+    --glow: rgba(185, 162, 255, 0.55); --lamp: rgba(185, 162, 255, 0.12);
+    --font-display: 'Bricolage Grotesque', system-ui, sans-serif;
+    --font-text: 'Figtree', system-ui, sans-serif;
+    --r-chip: 14px; --r-card: 28px; --r-zone: 40px;
+    --enter: 420ms; --draw: 650ms; --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --scale: 1;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: var(--bg); overflow: hidden; }
+  body { color: var(--text); font-family: var(--font-text); font-weight: 500; -webkit-font-smoothing: antialiased; }
+
+  .stage {
+    position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px;
+    transform: translate(-50%, -50%) scale(var(--scale));
+    background: radial-gradient(1100px at 8% 0%, var(--lamp), transparent), var(--bg);
+    overflow: hidden;
+  }
+
+  /* reveal: everything tagged data-step stays hidden until its step */
+  [data-step] { opacity: 0; transform: translateY(14px); transition: opacity var(--enter) var(--ease), transform var(--enter) var(--ease); }
+  [data-step].is-on { opacity: 1; transform: none; }
+  svg [data-step] { transform: none; }
+
+  header.title { position: absolute; left: 96px; top: 44px; }
+  .eyebrow { font-weight: 700; font-size: 26px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
+  h1 { font-family: var(--font-display); font-weight: 800; font-size: 60px; line-height: 1.1; letter-spacing: -0.01em; margin-top: 6px; }
+
+  .zone {
+    position: absolute; left: 394px; top: 190px; width: 1132px; height: 660px;
+    border: 2px dashed var(--line); border-radius: var(--r-zone);
+    transition: border-color var(--enter) var(--ease), box-shadow var(--enter) var(--ease), opacity var(--enter) var(--ease), transform var(--enter) var(--ease);
+  }
+  .zone-label { position: absolute; left: 32px; top: -22px; padding: 2px 18px; border: 2px solid var(--line); border-radius: 999px; background: var(--raised); font-weight: 700; font-size: 24px; color: var(--text-muted); transition: color var(--enter) var(--ease), border-color var(--enter) var(--ease); }
+  .zone.is-stack { border-style: solid; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 48px -8px var(--glow); }
+  .zone.is-stack .zone-label { color: var(--accent); border-color: var(--accent); }
+
+  .node {
+    position: absolute; padding: 18px 24px; background: var(--raised); border: 2px solid var(--line);
+    border-radius: var(--r-card); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    transition: opacity var(--enter) var(--ease), transform var(--enter) var(--ease), border-color var(--enter) var(--ease), box-shadow var(--enter) var(--ease);
+  }
+  .node.is-current { border-color: var(--accent); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 0 36px -6px var(--glow); }
+  .node h2 { font-weight: 700; font-size: 28px; line-height: 1.2; }
+  .node p { font-size: 24px; line-height: 1.35; color: var(--text-dim); margin-top: 6px; }
+  .node .tag { font-weight: 700; font-size: 22px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+
+  .device { width: 280px; top: 232px; height: 328px; background: var(--overlay); }
+  .device h2 { margin-top: 4px; }
+  #phone { left: 64px; }
+  #tv { left: 1576px; }
+  .chip {
+    position: absolute; left: 20px; right: 20px; bottom: 24px; padding: 10px 14px; border-radius: var(--r-chip);
+    background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: 24px; text-align: center;
+  }
+  .note { color: var(--accent-soft) !important; }
+
+  .svc { width: 332px; height: 108px; padding: 16px 20px; }
+  .svc p { font-size: 22px; }
+  .col1 { left: 410px; } .col2 { left: 794px; } .col3 { left: 1178px; }
+  .rowB { top: 404px; } .rowC { top: 572px; }
+  #appsync { left: 760px; top: 232px; width: 400px; height: 104px; }
+  #cdn { left: 410px; top: 730px; width: 600px; height: 92px; padding: 14px 22px; }
+  #cdk { left: 1050px; top: 730px; width: 460px; height: 92px; padding: 14px 22px; }
+  #cdn p, #cdk p { font-size: 22px; margin-top: 2px; }
+
+  svg.wires { position: absolute; inset: 0; width: 1920px; height: 1080px; pointer-events: none; overflow: visible; }
+  .wire { fill: none; stroke: var(--accent); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset var(--draw) var(--ease); }
+  .wire.is-on { stroke-dashoffset: 0; }
+  .wire.has-head { marker-end: url(#head); }
+  .wire.soft { stroke: var(--accent-soft); }
+  .wire-label { font-family: var(--font-text); font-weight: 700; font-size: 24px; fill: var(--accent-soft); }
+  .wire-label.is-on { opacity: 1; }
+  .dot { fill: var(--accent-soft); }
+
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-step], .wire, .node, .zone, .zone-label { transition: none; }
+    .dots { display: none; }
+  }
+</style>
+</head>
+<body>
+<main class="stage" aria-labelledby="arch-title">
+  <header class="title" data-step="1">
+    <p class="eyebrow">Under the hood</p>
+    <h1 id="arch-title">Couch Coach on AWS</h1>
+  </header>
+
+  <section class="zone" id="zone" data-step="1" aria-label="AWS">
+    <span class="zone-label" id="zone-label">AWS · us-east-1</span>
+  </section>
+
+  <article class="node device" id="phone" data-step="1">
+    <p class="tag">Phone · browser</p>
+    <h2>Camera Phone</h2>
+    <p>MediaPipe Pose + pose-reps</p>
+    <p class="note">Video stays on the phone</p>
+    <span class="chip" data-step="3">End set</span>
+  </article>
+
+  <article class="node device" id="tv" data-step="1">
+    <p class="tag">Fire TV · Fire OS</p>
+    <h2>Fire TV app</h2>
+    <p>Live skeleton, reps, Form Score</p>
+    <span class="chip" data-step="4">Coach's Cue</span>
+  </article>
+
+  <article class="node" id="appsync" data-step="2">
+    <h2>AWS AppSync Events</h2>
+    <p>Realtime pub/sub, phone to TV</p>
+  </article>
+
+  <article class="node svc col1 rowB" id="apigw" data-step="3">
+    <h2>Amazon API Gateway</h2>
+    <p>HTTP API · POST /coach</p>
+  </article>
+  <article class="node svc col2 rowB" id="lambda" data-step="3">
+    <h2>AWS Lambda</h2>
+    <p>coach function</p>
+  </article>
+  <article class="node svc col3 rowB" id="ddb" data-step="3">
+    <h2>Amazon DynamoDB</h2>
+    <p>Last 5 sets: the memory</p>
+  </article>
+
+  <article class="node svc col1 rowC" id="bedrock" data-step="4">
+    <h2>Amazon Bedrock</h2>
+    <p>Claude Haiku 4.5 · the Cue</p>
+  </article>
+  <article class="node svc col2 rowC" id="polly" data-step="4">
+    <h2>Amazon Polly</h2>
+    <p>Neural voice speaks it</p>
+  </article>
+  <article class="node svc col3 rowC" id="s3audio" data-step="4">
+    <h2>Amazon S3</h2>
+    <p>Cue audio, 1-day expiry</p>
+  </article>
+
+  <article class="node" id="cdn" data-step="5">
+    <h2>Amazon CloudFront + S3</h2>
+    <p>Serves the phone page</p>
+  </article>
+  <article class="node" id="cdk" data-step="5">
+    <h2>AWS CDK</h2>
+    <p>One stack deploys it all</p>
+  </article>
+
+  <svg class="wires" viewBox="0 0 1920 1080" aria-hidden="true">
+    <defs>
+      <marker id="head" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#b9a2ff"/>
+      </marker>
+    </defs>
+    <!-- step 2: body points stream phone -> AppSync Events -> TV -->
+    <path id="w-pose-in" class="wire" data-step="2" pathLength="1" d="M348 284 H752"/>
+    <path id="w-pose-out" class="wire" data-step="2" pathLength="1" d="M1168 284 H1568"/>
+    <text class="wire-label" data-step="2" x="560" y="268" text-anchor="middle">33 body points per frame</text>
+    <text class="wire-label" data-step="2" x="1368" y="268" text-anchor="middle">live skeleton</text>
+    <g class="dots" data-step="2">
+      <circle class="dot" r="7"><animateMotion dur="1.2s" repeatCount="indefinite"><mpath href="#w-pose-in"/></animateMotion></circle>
+      <circle class="dot" r="7"><animateMotion dur="1.2s" begin="0.4s" repeatCount="indefinite"><mpath href="#w-pose-in"/></animateMotion></circle>
+      <circle class="dot" r="7"><animateMotion dur="1.2s" begin="0.8s" repeatCount="indefinite"><mpath href="#w-pose-in"/></animateMotion></circle>
+      <circle class="dot" r="7"><animateMotion dur="1.2s" begin="0.2s" repeatCount="indefinite"><mpath href="#w-pose-out"/></animateMotion></circle>
+      <circle class="dot" r="7"><animateMotion dur="1.2s" begin="0.6s" repeatCount="indefinite"><mpath href="#w-pose-out"/></animateMotion></circle>
+      <circle class="dot" r="7"><animateMotion dur="1.2s" begin="1.0s" repeatCount="indefinite"><mpath href="#w-pose-out"/></animateMotion></circle>
+    </g>
+    <!-- step 3: End set -> API Gateway -> Lambda <-> DynamoDB -->
+    <path class="wire" data-step="3" pathLength="1" d="M348 458 H402"/>
+    <path class="wire" data-step="3" pathLength="1" d="M746 458 H786"/>
+    <path class="wire" data-step="3" pathLength="1" d="M1174 458 H1134"/>
+    <!-- step 4: Lambda -> Bedrock -> Polly -> S3 -> TV voice; Lambda -> Cue over AppSync -> TV -->
+    <path class="wire" data-step="4" pathLength="1" d="M900 516 V542 H576 V564"/>
+    <path class="wire" data-step="4" pathLength="1" d="M746 626 H786"/>
+    <path class="wire" data-step="4" pathLength="1" d="M1130 626 H1170"/>
+    <path class="wire" data-step="4" pathLength="1" d="M1514 626 H1716 V568"/>
+    <path class="wire soft" data-step="4" pathLength="1" d="M1020 400 V344"/>
+    <text class="wire-label" data-step="4" x="1036" y="380">Cue</text>
+    <text class="wire-label" data-step="4" x="1732" y="604">voice</text>
+    <!-- step 5: CloudFront + S3 -> phone page -->
+    <path class="wire" data-step="5" pathLength="1" d="M406 776 H204 V568"/>
+  </svg>
+
+  <p class="sr-only" aria-live="polite" id="announce"></p>
+</main>
+
+<script>
+  (() => {
+    const MAX_STEP = 5;
+    const HEAD_DELAY_MS = 600; // arrowheads appear once a wire has drawn in
+    const STEP_NOTES = [
+      '',
+      'A phone and a Fire TV, with AWS in between.',
+      'Body points stream over AWS AppSync Events to the TV.',
+      'End set calls API Gateway; a Lambda function reads the history from DynamoDB.',
+      'Amazon Bedrock writes the Cue, Amazon Polly speaks it, S3 holds the audio for the TV.',
+      'CloudFront and S3 serve the phone page. It is all one CDK stack.',
+    ];
+    const root = document.documentElement;
+    const stepped = [...document.querySelectorAll('[data-step]')];
+    const zone = document.getElementById('zone');
+    const zoneLabel = document.getElementById('zone-label');
+    const announce = document.getElementById('announce');
+    const headTimers = new Set();
+    let step = 0;
+
+    const clamp = (n) => Math.max(0, Math.min(MAX_STEP, n));
+
+    const render = () => {
+      headTimers.forEach(clearTimeout);
+      headTimers.clear();
+      for (const el of stepped) {
+        const at = Number(el.dataset.step);
+        const on = at <= step;
+        el.classList.toggle('is-on', on);
+        el.classList.toggle('is-current', on && at === step && el.classList.contains('node'));
+        if (el.classList.contains('wire')) {
+          if (on) headTimers.add(setTimeout(() => el.classList.add('has-head'), HEAD_DELAY_MS));
+          else el.classList.remove('has-head');
+        }
+      }
+      const isStack = step >= MAX_STEP;
+      zone.classList.toggle('is-stack', isStack);
+      zoneLabel.textContent = isStack ? 'AWS · us-east-1 · CouchCoachStack' : 'AWS · us-east-1';
+      root.dataset.archStep = String(step);
+      announce.textContent = STEP_NOTES[step] ?? '';
+    };
+
+    const go = (n) => {
+      const next = clamp(n);
+      if (next === step) return step;
+      step = next;
+      render();
+      return step;
+    };
+
+    window.arch = {
+      get step() { return step; },
+      go,
+      next: () => go(step + 1),
+      prev: () => go(step - 1),
+    };
+
+    document.addEventListener('keydown', (e) => {
+      if (['ArrowRight', ' ', 'Enter', 'PageDown'].includes(e.key)) go(step + 1);
+      else if (['ArrowLeft', 'PageUp'].includes(e.key)) go(step - 1);
+      else if (/^[0-5]$/.test(e.key)) go(Number(e.key));
+      else return;
+      e.preventDefault();
+    });
+
+    const fit = () => {
+      const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+      root.style.setProperty('--scale', String(scale));
+    };
+    window.addEventListener('resize', fit);
+    fit();
+
+    const params = new URLSearchParams(location.search);
+    const startRaw = params.get('step');
+    const start = startRaw !== null && /^[0-5]$/.test(startRaw) ? Number(startRaw) : 1;
+    // Paint the hidden state first so the first step animates in.
+    render();
+    requestAnimationFrame(() => requestAnimationFrame(() => go(start)));
+
+    const auto = params.get('auto');
+    if (auto) {
+      const times = auto.split(',').map(Number).filter((t) => Number.isFinite(t) && t >= 0);
+      times.slice(0, MAX_STEP - 1).forEach((t, i) => setTimeout(() => go(i + 2), t * 1000));
+    }
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Couch Coach frame</title>
+<!--
+  Background plate for compose.mjs, rendered once per layout to a 1920x1080 PNG with Playwright; the device videos
+  are overlaid on it by ffmpeg at the exact boxes in the layout JSON passed in the URL hash
+  (#<encodeURIComponent(JSON.stringify(layout))>, see lib/layout.mjs). Lamplight palette, no logos, and nothing
+  drawn below layout.captionTop so the burned-in captions sit on a quiet band.
+-->
+<style>
+  :root {
+    --bg: #1b1420;
+    --bg-lift: #241a2b;
+    --accent: #b9a2ff;
+    --accent-soft: rgba(185, 162, 255, 0.16);
+    --ink: #efe8ff;
+    --ink-muted: rgba(239, 232, 255, 0.62);
+    --frame: #120d16;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+  body {
+    position: relative;
+    background:
+      radial-gradient(1200px 700px at 72% 38%, rgba(185, 162, 255, 0.09), transparent 70%),
+      radial-gradient(700px 600px at 14% 46%, rgba(255, 190, 150, 0.05), transparent 70%),
+      linear-gradient(180deg, var(--bg-lift) 0%, var(--bg) 62%);
+  }
+  /* fine grain, so the dark plate does not band after H.264 */
+  body::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0.07;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  .panel {
+    position: absolute;
+    background: var(--frame);
+    box-shadow: 0 0 0 1px rgba(185, 162, 255, 0.22), 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 90px var(--accent-soft);
+  }
+  .panel.tv { border-radius: 14px; }
+  .panel.phone { border-radius: 30px; }
+  .label {
+    position: absolute;
+    font: 600 15px/22px var(--mono);
+    letter-spacing: 0.08em;
+    color: var(--ink-muted);
+    white-space: nowrap;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .label .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+  .label .device { color: var(--accent); }
+  .label.stacked { flex-direction: column; align-items: flex-start; white-space: normal; gap: 4px; }
+  .label-head { display: flex; align-items: center; gap: 10px; }
+  .caption-band { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.18)); }
+</style>
+</head>
+<body>
+<script>
+  const layout = JSON.parse(decodeURIComponent(location.hash.slice(1) || '{}'));
+  const BEZEL = { phone: 10, tv: 8 }; // the frame shows this far around the video box
+
+  function panel(kind, box) {
+    const el = document.createElement('div');
+    const b = BEZEL[kind];
+    el.className = `panel ${kind}`;
+    Object.assign(el.style, { left: `${box.x - b}px`, top: `${box.y - b}px`, width: `${box.w + 2 * b}px`, height: `${box.h + 2 * b}px` });
+    document.body.append(el);
+  }
+
+  function label({ text, x, y, w, stacked }) {
+    const [device, ...rest] = text.split(' · ');
+    const el = document.createElement('div');
+    el.className = `label${stacked ? ' stacked' : ''}`;
+    Object.assign(el.style, { left: `${x}px`, top: `${y}px`, ...(w ? { width: `${w}px` } : {}) });
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    const strong = document.createElement('span');
+    strong.className = 'device';
+    strong.textContent = device;
+    const muted = document.createElement('span');
+    muted.textContent = stacked ? rest.join(' · ') : `· ${rest.join(' · ')}`;
+    if (stacked) {
+      const head = document.createElement('span');
+      head.className = 'label-head';
+      head.append(dot, strong);
+      el.append(head, muted);
+    } else el.append(dot, strong, muted);
+    document.body.append(el);
+  }
+
+  if (layout.phone) panel('phone', layout.phone);
+  if (layout.tv) panel('tv', layout.tv);
+  for (const l of layout.labels ?? []) label(l);
+  const band = document.createElement('div');
+  band.className = 'caption-band';
+  band.style.top = `${layout.captionTop ?? 870}px`;
+  document.body.append(band);
+  document.body.dataset.ready = '1';
+</script>
+</body>
+</html>
