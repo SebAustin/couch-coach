@@ -1,6 +1,14 @@
 import type { SetSummary } from '@couch-coach/protocol';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Sets this close together are one workout, so they always count as the same day. */
+const ONE_WORKOUT_MS = 3 * 60 * 60 * 1000;
+/**
+ * The Lambda runs in UTC and has no member time zone yet, so "today" defaults to US Central time: its midnight
+ * is within 2 h of every contiguous-US zone's, whereas UTC midnight lands at 4-8 pm US time, mid-workout.
+ * Elsewhere the day can flip at an odd local hour (7 am in Paris) until the member's zone is passed in.
+ */
+const DEFAULT_TIME_ZONE = 'America/Chicago';
 const MAX_HISTORY = 5;
 const MAX_CUE_CHARS = 600;
 const MAX_CUE_SENTENCES = 2;
@@ -23,6 +31,8 @@ export interface PromptInput {
   set: SetSummary;
   history: readonly HistorySet[];
   nowMs: number;
+  /** IANA zone that decides "earlier today" vs "yesterday"; defaults to DEFAULT_TIME_ZONE. */
+  timeZone?: string;
 }
 
 const SYSTEM_PROMPT = [
@@ -86,9 +96,17 @@ function rankFaults(faults: Record<string, number>): Array<[string, number]> {
 const share = (n: number, reps: number): number => Math.min(n, Math.max(reps, 1)) / Math.max(reps, 1);
 const onReps = (n: number, reps: number): string => `${Math.min(n, reps)} of ${reps} reps`;
 
-function relativeDay(thenMs: number, nowMs: number): string {
-  const days = Math.floor((nowMs - thenMs) / DAY_MS);
-  if (days <= 0) return 'earlier today';
+/** Days since the epoch of the calendar date that `ms` falls on in `timeZone`. */
+function calendarDay(ms: number, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(ms);
+  const part = (type: Intl.DateTimeFormatPartTypes): number => Number(parts.find((p) => p.type === type)?.value);
+  return Date.UTC(part('year'), part('month') - 1, part('day')) / DAY_MS;
+}
+
+/** Counts calendar days, not 24 h windows: a Set from last night is "yesterday" even if it was 15 h ago. */
+function relativeDay(thenMs: number, nowMs: number, timeZone: string): string {
+  const days = calendarDay(nowMs, timeZone) - calendarDay(thenMs, timeZone);
+  if (days <= 0 || nowMs - thenMs < ONE_WORKOUT_MS) return 'earlier today';
   return days === 1 ? 'yesterday' : `${days} days ago`;
 }
 
@@ -111,10 +129,15 @@ export interface TrendResult {
  * Compares this Set with the most recent Set of the same Exercise, in code, so the model never has to
  * infer progress (it got this wrong live). Returns null when there is no such Set.
  */
-export function compareWithLastSet(set: SetSummary, history: readonly HistorySet[], nowMs: number): TrendResult | null {
+export function compareWithLastSet(
+  set: SetSummary,
+  history: readonly HistorySet[],
+  nowMs: number,
+  timeZone: string = DEFAULT_TIME_ZONE,
+): TrendResult | null {
   const last = history.slice(0, MAX_HISTORY).find((h) => h.exercise === set.exercise);
   if (!last) return null;
-  const when = relativeDay(last.createdAt, nowMs);
+  const when = relativeDay(last.createdAt, nowMs, timeZone);
   const faultId = rankFaults(set.faults)[0]?.[0] ?? rankFaults(last.faults)[0]?.[0] ?? null;
   if (!faultId) return { trend: 'same', faultId: null, last, when };
   const delta = share(set.faults[faultId] ?? 0, set.reps) - share(last.faults[faultId] ?? 0, last.reps);
@@ -138,10 +161,10 @@ function mainFaultLines(set: SetSummary): string[] {
   return lines;
 }
 
-function trendLine(set: SetSummary, history: readonly HistorySet[], nowMs: number): string {
+function trendLine(set: SetSummary, history: readonly HistorySet[], nowMs: number, timeZone?: string): string {
   const exercise = exerciseName(set.exercise);
   if (history.length === 0) return 'Trend: none. This is the first set we have seen from this member.';
-  const t = compareWithLastSet(set, history, nowMs);
+  const t = compareWithLastSet(set, history, nowMs, timeZone);
   if (!t) return `Trend: none. No earlier ${exercise} set.`;
   const vs = `vs the last ${exercise} set (${t.when})`;
   if (!t.faultId) return `Trend: same ${vs}. Clean both times.`;
@@ -151,13 +174,13 @@ function trendLine(set: SetSummary, history: readonly HistorySet[], nowMs: numbe
 }
 
 export function buildCoachPrompt(input: PromptInput): { system: string; user: string } {
-  const { set, history, nowMs } = input;
+  const { set, history, nowMs, timeZone } = input;
   const nameRule = mayUseName(input.setIndex) ? 'You may use the name once.' : 'Do not use the name in this cue.';
   const lines = [
     `Member: ${sanitizeName(input.memberName)}. ${nameRule}`,
     `Set ${input.setIndex} just finished: ${exerciseName(set.exercise)}, ${set.reps} reps, form score ${Math.round(set.score)}/100.`,
     ...mainFaultLines(set),
-    trendLine(set, history, nowMs),
+    trendLine(set, history, nowMs, timeZone),
     'Write the spoken cue now.',
   ];
   return { system: SYSTEM_PROMPT, user: lines.join('\n') };

@@ -167,6 +167,37 @@ describe('compareWithLastSet', () => {
   });
 });
 
+describe('compareWithLastSet: relative day', () => {
+  // Instants are written in US Central time (CDT, -05:00), the default zone for "today".
+  const when = (then: string, now: string, timeZone?: string) =>
+    compareWithLastSet(set, [past({ createdAt: Date.parse(then) })], Date.parse(now), timeZone)?.when;
+
+  it('says earlier today for a Set on the same calendar day, even across UTC midnight (7 pm CDT)', () => {
+    expect(when('2026-10-22T07:00-05:00', '2026-10-22T20:30-05:00')).toBe('earlier today');
+  });
+
+  it('says yesterday for a Set on the previous calendar day less than 24 h ago (the live bug)', () => {
+    expect(when('2026-10-21T16:44-05:00', '2026-10-22T09:48-05:00')).toBe('yesterday');
+  });
+
+  it('says yesterday for a Set on the previous calendar day more than 24 h ago', () => {
+    expect(when('2026-10-21T07:00-05:00', '2026-10-22T20:30-05:00')).toBe('yesterday');
+  });
+
+  it('counts calendar days, not 24 h windows, for older Sets', () => {
+    expect(when('2026-10-20T21:00-05:00', '2026-10-22T09:48-05:00')).toBe('2 days ago');
+    expect(when('2026-10-17T18:00-05:00', '2026-10-22T09:48-05:00')).toBe('5 days ago');
+  });
+
+  it('keeps one workout on one day when it runs past midnight', () => {
+    expect(when('2026-10-21T23:50-05:00', '2026-10-22T00:05-05:00')).toBe('earlier today');
+  });
+
+  it('counts days in the time zone it is given', () => {
+    expect(when('2026-10-22T07:00-05:00', '2026-10-22T20:30-05:00', 'Europe/Paris')).toBe('yesterday');
+  });
+});
+
 describe('faultLabel', () => {
   it('maps known fault ids and humanises unknown ones', () => {
     expect(faultLabel('knees_caving')).toBe('knees caving');
