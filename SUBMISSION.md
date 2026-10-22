@@ -103,7 +103,7 @@ React Native for TV (`react-native-tvos` 0.81 on Expo 54), forked from Amazon's 
 - A reusable open-source library with zero runtime dependencies, tests, CI and a real-data regression fixture.
 - A Coach that is checked, not just prompted: deterministic checks, a committed eval report, and code that owns the facts.
 - Security reviewed and hardened before submission, with the findings, fixes and the residual risks published in the repo.
-- On the Fire TV: FIRE_TV_MODEL running Fire OS FIRE_OS_VERSION, shown in the demo video.
+- On the Fire TV: Fire TV Stick (3rd generation) running Fire OS 7.7.1.7, shown in the demo video.
 
 ## What we learned
 
@@ -187,7 +187,7 @@ For transparency: a plan (and a glossary and assumptions file) was written on Oc
 
 | Field | Value |
 |---|---|
-| Demo video (YouTube, public) | `VIDEO_URL` |
+| Demo video (YouTube, public) | https://youtu.be/MrmDDrBSeBQ |
 | Code repository | https://github.com/SebAustin/couch-coach |
 | Open-source library | https://github.com/SebAustin/pose-reps |
 | Fire TV APK (for judges) | https://github.com/SebAustin/couch-coach/releases/download/v1.0/couch-coach-v1.0.apk (release page: https://github.com/SebAustin/couch-coach/releases/tag/v1.0) |
@@ -241,10 +241,10 @@ Use the entries in `FRICTION_LOG.md` (F1 to F16). The ones to paste first, in or
 
 | Placeholder | Where | What to put |
 |---|---|---|
-| `VIDEO_URL` | section 9 | the public YouTube URL after upload |
+| `VIDEO_URL` | filled | https://youtu.be/MrmDDrBSeBQ |
 | `APK_URL` | filled | GitHub Release v1.0 asset; live once the draft release is **published** |
-| `FIRE_TV_MODEL` | section 3, Accomplishments | the exact Fire TV device you filmed (read it from Settings > My Fire TV > About) |
-| `FIRE_OS_VERSION` | section 3, Accomplishments | the Fire OS version shown on the same screen. If the first on-device test (checkpoint 1) has not passed, delete that bullet |
+| `FIRE_TV_MODEL` | filled | Fire TV Stick (3rd generation), from Settings > My Fire TV > About on the filmed device |
+| `FIRE_OS_VERSION` | filled | Fire OS 7.7.1.7, from the same screen |
 | Final numbers | section 0 | re-run `npx tsx scripts/e2e-replay.ts` and the test suites; update the table and anything that quotes it |
 
 ## 13. Pre-submit checklist

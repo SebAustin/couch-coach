@@ -120,7 +120,7 @@ Each package under `packages/`, `services/`, `apps/phone`, `infra` and `scripts`
 
 ### (a) Watch the demo
 
-[Watch the demo video](VIDEO_URL) <!-- replace VIDEO_URL with the public YouTube link -->
+[Watch the demo video](https://youtu.be/MrmDDrBSeBQ) (2:06)
 
 ### (b) Run it on a Fire TV against the deployed backend
 
