@@ -14,7 +14,6 @@ import { useRetainedValue } from '../../hooks/useRetainedValue';
 import type { SessionStream } from '../../hooks/useSessionStream';
 import { deriveConnection, reconnectTick } from '../../lib/connection';
 import { setRecapLine, runningScore } from '../../lib/liveState';
-import { fitContain } from '../../lib/skeletonPaths';
 import { useBackHandler } from '../../navigation/backStack';
 import { color, motion, radius, s, safe } from '../../theme';
 import type { Member } from '../../vendor/protocol';
@@ -22,10 +21,9 @@ import { ConnectionPill } from './ConnectionPill';
 import { CueCard } from './CueCard';
 import { DebugOverlay } from './DebugOverlay';
 import { HudPanel, HUD_WIDTH } from './HudPanel';
-import { SkeletonStage, type FaultFlash, type RenderStats } from './SkeletonStage';
+import { SKELETON_VIEWPORT, STAGE_REGION, STAGE_WIDTH } from './layout';
+import { newRenderStats, SkeletonStage, type CleanFlash, type FaultFlash, type RenderStats } from './SkeletonStage';
 
-const STAGE_WIDTH = 1344;
-const STAGE_REGION = { x: 96, y: 54, width: 1200, height: 972 } as const;
 const TICK_MS = 500;
 /** The Cue card stays mounted this long after it is dismissed so its exit animation can play. */
 const CUE_EXIT_HOLD_MS = motion.exit + 40;
@@ -50,7 +48,7 @@ export function LiveScreen({ member, sessionId, stream, onEnded, onNewCode }: Pr
   const [focusShown, setFocusShown] = useState(false);
   const focusShownRef = useRef(false);
   const ending = useRef(false);
-  const renderStats = useRef<RenderStats>({ renders: 0 });
+  const renderStats = useRef<RenderStats>(newRenderStats());
   const replayRef = useRef<SpatialNavigationNodeRef>(null);
   const endRef = useRef<SpatialNavigationNodeRef>(null);
   const downSince = useRef<number | null>(null);
@@ -137,19 +135,21 @@ export function LiveScreen({ member, sessionId, stream, onEnded, onNewCode }: Pr
     [],
   );
 
-  // --- skeleton geometry --------------------------------------------------------------------
-  const box = useMemo(() => {
-    const fit = fitContain(state.aspect, STAGE_REGION.width, STAGE_REGION.height);
-    return {
-      width: s(fit.width),
-      height: s(fit.height),
-      left: s(STAGE_REGION.x + (STAGE_REGION.width - fit.width) / 2),
-      top: s(STAGE_REGION.y + (STAGE_REGION.height - fit.height) / 2),
-    };
-  }, [state.aspect]);
+  // --- skeleton -----------------------------------------------------------------------------
+  // The whole viewport is the skeleton's: SkeletonStage auto-frames the person inside it.
+  const viewport = {
+    left: s(SKELETON_VIEWPORT.x),
+    top: s(SKELETON_VIEWPORT.y),
+    width: s(SKELETON_VIEWPORT.width),
+    height: s(SKELETON_VIEWPORT.height),
+  };
 
   const fault: FaultFlash | null = useMemo(
     () => (state.lastRep && state.lastRep.faults.length > 0 ? { seq: state.repSeq, ids: state.lastRep.faults } : null),
+    [state.lastRep, state.repSeq],
+  );
+  const clean: CleanFlash | null = useMemo(
+    () => (state.lastRep && state.lastRep.faults.length === 0 ? { seq: state.repSeq } : null),
     [state.lastRep, state.repSeq],
   );
 
@@ -168,18 +168,21 @@ export function LiveScreen({ member, sessionId, stream, onEnded, onNewCode }: Pr
           <LampGlow />
         </View>
 
-        <View style={{ position: 'absolute', ...box }}>
+        <View style={{ position: 'absolute', ...viewport }}>
           <SkeletonStage
             buffer={buffer}
-            width={box.width}
-            height={box.height}
+            width={viewport.width}
+            height={viewport.height}
+            aspect={state.aspect}
             fault={fault}
+            clean={clean}
             dimmed={cueVisible || quiet}
             onNoPoseChange={handleNoPose}
             stats={renderStats}
           />
         </View>
 
+        {/* After the skeleton, so the pill stays on top of the viewport's top-left corner. */}
         <View style={{ position: 'absolute', top: s(safe.y), left: s(safe.x) }}>
           <ConnectionPill level={pillLevel} />
         </View>

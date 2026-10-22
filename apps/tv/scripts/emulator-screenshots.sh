@@ -2,12 +2,15 @@
 # Installs dist/couch-coach.apk on the running emulator/device, drives the real flow with D-pad key events and a
 # synthetic phone (scripts/publish-synthetic.mjs), and saves docs/screenshots/tv-*.png.
 #   yarn emulator && yarn build:apk && bash scripts/emulator-screenshots.sh
+# Extra publish-synthetic flags come from SYN_ARGS and are appended so they win, e.g.
+#   SYN_ARGS="--scale 0.45 --depth" ANDROID_SERIAL=emulator-5554 bash scripts/emulator-screenshots.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/android-env.sh
 OUT=docs/screenshots
 LOG="${TMPDIR:-/tmp}/couchcoach-synthetic.log"
 PKG=dev.sebaustin.couchcoach
+SYN_ARGS="${SYN_ARGS:-}"
 mkdir -p "$OUT"
 shot() { adb exec-out screencap -p > "$OUT/tv-$1.png"; echo "saved tv-$1.png"; }
 key() { adb shell input keyevent "$1"; sleep "${2:-1}"; }
@@ -31,9 +34,10 @@ key $DPAD_CENTER 7; shot 04-pair                               # real POST /sess
 key $BACK 2; shot 05-back-to-members
 
 # Synthetic phone drives Live through the attach deep link
+# shellcheck disable=SC2086 # SYN_ARGS is a list of flags: split it on purpose
 node scripts/publish-synthetic.mjs --wait 6 --reps 5 --faults knees_caving --end --end-delay 22 \
   --cue "Good depth. Your knees drifted in on Reps 2 and 4, so push them out over your toes. Same again, and slow the way down." \
-  > "$LOG" 2>&1 &
+  $SYN_ARGS > "$LOG" 2>&1 &
 SYN=$!
 for _ in $(seq 1 30); do grep -q "Android TV :" "$LOG" && break; sleep 1; done
 LINK=$(grep -o 'couchcoach://attach?[^"]*' "$LOG" | head -1)

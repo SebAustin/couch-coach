@@ -7,7 +7,8 @@
  *   yarn dev:web                       # terminal 1 (http://localhost:8082)
  *   node scripts/web-screenshots.mjs   # terminal 2
  *
- * Env: CHROME_PATH (default: macOS Google Chrome), TV_URL (default http://localhost:8082)
+ * Env: CHROME_PATH (default: macOS Google Chrome), TV_URL (default http://localhost:8082),
+ *      SYN_ARGS (extra publish-synthetic flags, appended so they win, e.g. SYN_ARGS="--scale 0.45 --depth")
  */
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
@@ -19,6 +20,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const out = join(here, '../docs/screenshots');
 const base = process.env.TV_URL ?? 'http://localhost:8082';
 const chrome = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const synArgs = (process.env.SYN_ARGS ?? '').split(/\s+/).filter(Boolean);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 mkdirSync(out, { recursive: true });
 
@@ -62,7 +64,8 @@ await shot('03-pair');
 const synthetic = spawn(
   process.execPath,
   [join(here, 'publish-synthetic.mjs'), '--wait', '8', '--reps', '5', '--faults', 'knees_caving', '--end', '--end-delay', '12', '--cue',
-    'Good depth. Your knees drifted in on Reps 2 and 4, so push them out over your toes. Same again, and slow the way down.'],
+    'Good depth. Your knees drifted in on Reps 2 and 4, so push them out over your toes. Same again, and slow the way down.',
+    ...synArgs],
   { stdio: ['ignore', 'pipe', 'inherit'] },
 );
 let log = '';

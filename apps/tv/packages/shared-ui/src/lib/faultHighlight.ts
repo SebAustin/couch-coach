@@ -38,3 +38,18 @@ export function faultOpacity(elapsedMs: number): number {
   const fade = (elapsedMs - FAULT_HOLD_MS) / FAULT_FADE_MS;
   return fade >= 1 ? 0 : 1 - fade;
 }
+
+export const CLEAN_RISE_MS = 120;
+export const CLEAN_HOLD_UNTIL_MS = 360;
+export const CLEAN_END_MS = 840;
+
+/**
+ * Opacity of the mint clean-Rep pulse on the legs `elapsedMs` after the (playout-delayed) Rep: up in 120 ms, held to
+ * 360 ms, faded out by 840 ms. One pulse per Rep, so far under 3 flashes a second.
+ */
+export function cleanPulseOpacity(elapsedMs: number): number {
+  if (elapsedMs <= 0 || elapsedMs >= CLEAN_END_MS) return 0;
+  if (elapsedMs < CLEAN_RISE_MS) return elapsedMs / CLEAN_RISE_MS;
+  if (elapsedMs <= CLEAN_HOLD_UNTIL_MS) return 1;
+  return 1 - (elapsedMs - CLEAN_HOLD_UNTIL_MS) / (CLEAN_END_MS - CLEAN_HOLD_UNTIL_MS);
+}

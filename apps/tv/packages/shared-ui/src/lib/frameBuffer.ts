@@ -1,4 +1,4 @@
-import type { Landmark, PoseBatch } from '../vendor/protocol';
+import type { Landmark, Motion, PoseBatch } from '../vendor/protocol';
 import { decodeFrame } from '../vendor/protocol';
 import { lerpPose, smoothPose } from './smoothing';
 
@@ -6,6 +6,14 @@ export interface TimedPose {
   /** Capture time on the phone clock (ms). */
   t: number;
   pose: Landmark[];
+  /** The phone's live rep-counter state for this frame (newer phones only). */
+  motion?: Motion;
+}
+
+/** What to draw at a moment: the (interpolated) pose and the live motion, null when the frames carry none. */
+export interface SampledFrame {
+  pose: Landmark[];
+  motion: Motion | null;
 }
 
 export interface FrameBufferOptions {
@@ -90,7 +98,7 @@ export class FrameBuffer {
     let previous = this.lastSmoothed;
     for (const f of fresh) {
       const pose = this.opts.smoothing ? smoothPose(previous, f.pose) : f.pose;
-      smoothed.push({ t: f.t, pose });
+      smoothed.push(f.motion ? { t: f.t, pose, motion: f.motion } : { t: f.t, pose });
       previous = pose;
     }
     // Only advance the smoothing state if these frames are the newest we have seen.
@@ -108,9 +116,14 @@ export class FrameBuffer {
     this.updateDelay(arrivalMs, cutoff);
   }
 
-  /** Convenience: decode a wire PoseBatch and push it. */
+  /** Convenience: decode a wire PoseBatch (keeping each frame's motion) and push it. */
   pushBatch(batch: PoseBatch, arrivalMs: number): void {
-    this.push(batch.frames.map(decodeFrame), arrivalMs);
+    this.push(
+      batch.frames.map((frame) =>
+        frame.motion ? { ...decodeFrame(frame), motion: frame.motion } : decodeFrame(frame),
+      ),
+      arrivalMs,
+    );
   }
 
   private updateDelay(arrivalMs: number, cutoff: number): void {
@@ -140,18 +153,27 @@ export class FrameBuffer {
     return offset === null ? null : nowMs - offset - this.delayMs;
   }
 
-  /** The pose to draw at TV time `nowMs` (interpolated; holds the newest frame if starved), or null if empty. */
-  sample(nowMs: number): Landmark[] | null {
+  /** Playout delay currently applied (ms): a Rep event is drawn about this long after it arrives. */
+  playoutDelayMs(): number {
+    return this.delayMs;
+  }
+
+  /**
+   * The frame to draw at TV time `nowMs`: the pose interpolated between the two bracketing frames (the newest is held
+   * if starved), and the motion with its depth interpolated when both frames have one, otherwise the nearest frame's.
+   * Null if empty.
+   */
+  sampleFrame(nowMs: number): SampledFrame | null {
     const target = this.playoutTime(nowMs);
     const frames = this.frames;
     if (target === null || frames.length === 0) return null;
 
     const first = frames[0]!;
     const last = frames[frames.length - 1]!;
-    if (target <= first.t) return first.pose;
+    if (target <= first.t) return asSampled(first);
     if (target >= last.t) {
       this.starved += 1;
-      return last.pose;
+      return asSampled(last);
     }
     // Binary search for the bracketing pair.
     let lo = 0;
@@ -164,12 +186,23 @@ export class FrameBuffer {
     const a = frames[lo]!;
     const b = frames[hi]!;
     const span = b.t - a.t;
-    return lerpPose(a.pose, b.pose, span <= 0 ? 1 : (target - a.t) / span);
+    const f = span <= 0 ? 1 : (target - a.t) / span;
+    return { pose: lerpPose(a.pose, b.pose, f), motion: lerpMotion(a.motion, b.motion, f) };
   }
 
-  /** The newest pose with no interpolation (reduced-motion rendering), or null if empty. */
+  /** The pose to draw at TV time `nowMs` (see `sampleFrame`), or null if empty. */
+  sample(nowMs: number): Landmark[] | null {
+    return this.sampleFrame(nowMs)?.pose ?? null;
+  }
+
+  /** The newest frame with no interpolation (reduced-motion rendering), or null if empty. */
+  latestFrame(): SampledFrame | null {
+    return this.frames.length === 0 ? null : asSampled(this.frames[this.frames.length - 1]!);
+  }
+
+  /** The newest pose with no interpolation, or null if empty. */
   latest(): Landmark[] | null {
-    return this.frames.length === 0 ? null : this.frames[this.frames.length - 1]!.pose;
+    return this.latestFrame()?.pose ?? null;
   }
 
   stats(): BufferStats {
@@ -192,6 +225,15 @@ export class FrameBuffer {
     this.starved = 0;
     this.received = 0;
   }
+}
+
+const asSampled = (frame: TimedPose): SampledFrame => ({ pose: frame.pose, motion: frame.motion ?? null });
+
+/** Depth is interpolated when both frames have motion; phase and target (and a one-sided motion) come from the nearest. */
+function lerpMotion(a: Motion | undefined, b: Motion | undefined, f: number): Motion | null {
+  const nearest = f < 0.5 ? a : b;
+  if (!a || !b || !nearest) return nearest ?? null;
+  return { depth: a.depth + (b.depth - a.depth) * f, phase: nearest.phase, target: nearest.target };
 }
 
 /** True when `t` looks like a Unix epoch in ms (so `now - t` is a meaningful receive latency). */

@@ -16,6 +16,9 @@ interface Props {
 
 interface Snapshot {
   renderFps: number;
+  /** Mean / max time of one drawing tick over the last refresh window. */
+  tick: string;
+  zoom: string;
   inFps: number;
   latency: string;
   buffer: BufferStats;
@@ -28,7 +31,7 @@ const REFRESH_MS = 500;
 /** Toggled with the remote's Menu/Info key (or "D" on web). Shows what the skeleton is being fed. */
 export function DebugOverlay({ buffer, telemetry, renderStats, connection, sessionId }: Props) {
   const [snap, setSnap] = useState<Snapshot | null>(null);
-  const last = useRef({ at: Date.now(), renders: 0, received: 0 });
+  const last = useRef({ at: Date.now(), renders: 0, received: 0, tickSum: 0 });
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -36,8 +39,14 @@ export function DebugOverlay({ buffer, telemetry, renderStats, connection, sessi
       const stats = buffer.stats();
       const dt = Math.max(1, now - last.current.at) / 1000;
       const t = telemetry.current;
+      const r = renderStats.current;
+      const ticks = r.renders - last.current.renders;
+      const tick = ticks > 0 ? `${((r.tickMs.sum - last.current.tickSum) / ticks).toFixed(1)} avg / ${r.tickMs.max.toFixed(1)} max ms` : 'n/a';
+      r.tickMs.max = 0; // the max is per refresh window
       setSnap({
-        renderFps: Math.round((renderStats.current.renders - last.current.renders) / dt),
+        renderFps: Math.round(ticks / dt),
+        tick,
+        zoom: `${r.zoom.toFixed(2)}x`,
         inFps: Math.round((stats.received - last.current.received) / dt),
         latency:
           t.receiveLatencyMs === null
@@ -47,7 +56,7 @@ export function DebugOverlay({ buffer, telemetry, renderStats, connection, sessi
         sinceBatch: t.lastPoseAt === 0 ? 'never' : `${Math.round(now - t.lastPoseAt)} ms ago`,
         invalid: t.invalidMessages,
       });
-      last.current = { at: now, renders: renderStats.current.renders, received: stats.received };
+      last.current = { at: now, renders: r.renders, received: stats.received, tickSum: r.tickMs.sum };
     }, REFRESH_MS);
     return () => clearInterval(id);
   }, [buffer, telemetry, renderStats]);
@@ -55,6 +64,8 @@ export function DebugOverlay({ buffer, telemetry, renderStats, connection, sessi
   const rows: [string, string][] = snap
     ? [
         ['Draw', `${snap.renderFps} fps`],
+        ['Tick', snap.tick],
+        ['Zoom', snap.zoom],
         ['Frames in', `${snap.inFps} fps`],
         ['Receive latency', snap.latency],
         ['Playout delay', `${snap.buffer.playoutDelayMs} ms`],

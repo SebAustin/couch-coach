@@ -1,10 +1,33 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Animated, Platform, StyleSheet, View, type ViewStyle } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
+import {
+  figureHeightPx,
+  initialFraming,
+  poseBounds,
+  projectionFor,
+  stepFraming,
+  zoomRatio,
+  type FramingState,
+} from '../../lib/autoFrame';
 import type { FrameBuffer } from '../../lib/frameBuffer';
-import { faultOpacity, highlightFor } from '../../lib/faultHighlight';
-import { allLowVisibility, buildSkeletonPaths, EMPTY_PATHS, type SkeletonPaths } from '../../lib/skeletonPaths';
+import { cleanPulseOpacity, faultOpacity, highlightFor } from '../../lib/faultHighlight';
+import {
+  allLowVisibility,
+  buildSkeletonPaths,
+  DEFAULT_SIZES,
+  NO_EMPHASIS,
+  skeletonSizes,
+  stableFigurePx,
+  strokeWidths,
+  visibilityHysteresis,
+  type Emphasis,
+  type SkeletonPaths,
+  type SkeletonSizes,
+  type StrokedLayer,
+} from '../../lib/skeletonPaths';
+import type { Landmark } from '../../vendor/protocol';
 import { color, s } from '../../theme';
 
 export interface FaultFlash {
@@ -13,16 +36,31 @@ export interface FaultFlash {
   ids: readonly string[];
 }
 
+/** The last Rep had no Faults: pulse the legs mint once. `seq` increments per Rep. */
+export interface CleanFlash {
+  seq: number;
+}
+
 export interface RenderStats {
   /** Frames drawn since mount (read once a second by the debug overlay). */
   renders: number;
+  /** Time spent in drawing ticks (ms): running sum, and the max since the debug overlay last reset it. */
+  tickMs: { sum: number; max: number };
+  /** Auto-frame zoom relative to the full camera frame (1 = whole frame). */
+  zoom: number;
 }
+
+export const newRenderStats = (): RenderStats => ({ renders: 0, tickMs: { sum: 0, max: 0 }, zoom: 1 });
 
 interface Props {
   buffer: FrameBuffer;
+  /** Skeleton viewport in device px. */
   width: number;
   height: number;
+  /** Camera frame width / height (from `hello`). */
+  aspect: number;
   fault: FaultFlash | null;
+  clean: CleanFlash | null;
   /** Drop to 35% opacity (Set over, or the phone went quiet). */
   dimmed: boolean;
   /** Called when "nobody in frame" starts or ends (all landmarks < 0.5 for 2 s). */
@@ -34,31 +72,83 @@ interface Props {
 const MIN_FRAME_GAP_MS = 28;
 const NO_POSE_AFTER_MS = 2000;
 const DIMMED_OPACITY = 0.35;
-const BRACKET = 24;
+const DIM_LAYER_OPACITY = 0.25;
+const FAULT_HALO_OPACITY = 0.35;
+const CLEAN_EMPHASIS: Emphasis = { ...NO_EMPHASIS, clean: true };
 
 type PathHandle = { setNativeProps?: (props: object) => void } | null;
 type LayerKey = Exclude<keyof SkeletonPaths, 'headVisible'>;
+const LAYERS: readonly LayerKey[] = [
+  'faultHalo',
+  'bonesDim',
+  'bones',
+  'faultBones',
+  'cleanPulse',
+  'faultJointRing',
+  'jointsDim',
+  'joints',
+  'head',
+];
+const STROKED: readonly StrokedLayer[] = ['faultHalo', 'bonesDim', 'bones', 'faultBones', 'cleanPulse'];
+
+/** What the loop last wrote into the native views. null / -1 never match a real value, so they force a rewrite. */
+interface Written {
+  paths: SkeletonPaths | null;
+  bone: number;
+  head: number;
+  flash: number;
+  pulse: number;
+}
+const unwritten = (): Written => ({ paths: null, bone: -1, head: -1, flash: -1, pulse: -1 });
+
+const toDevice = (sizes: SkeletonSizes): SkeletonSizes => ({
+  bone: s(sizes.bone),
+  joint: s(sizes.joint),
+  bigJoint: s(sizes.bigJoint),
+  head: s(sizes.head),
+  outline: s(sizes.outline),
+});
+const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 /**
- * Live skeleton. Drawn imperatively: a requestAnimationFrame loop samples the jitter buffer and writes
- * path data straight into the SVG elements via `setNativeProps`, so React never re-renders per frame.
+ * Live skeleton, auto-framed. Drawn imperatively: a requestAnimationFrame loop samples the jitter buffer, steps the
+ * framing and writes path data straight into the SVG elements via `setNativeProps`, so React never re-renders per
+ * frame. Each tick: sampleFrame -> poseBounds -> stepFraming -> projectionFor -> skeletonSizes -> buildSkeletonPaths.
  */
-export function SkeletonStage({ buffer, width, height, fault, dimmed, onNoPoseChange, stats }: Props) {
+function SkeletonStageView({ buffer, width, height, aspect, fault, clean, dimmed, onNoPoseChange, stats }: Props) {
   const reduceMotion = useReducedMotion();
   const handles = useRef<Record<string, PathHandle>>({});
-  const lastPaths = useRef<SkeletonPaths>(EMPTY_PATHS);
+  const written = useRef<Written>(unwritten());
+  const framing = useRef<FramingState>(initialFraming({ width, height }, aspect));
+  const visible = useRef<boolean[] | null>(null);
+  const figure = useRef<number | null>(null);
   const faultAt = useRef(0);
   const faultRef = useRef<FaultFlash | null>(fault);
+  const cleanAt = useRef(0);
+  const cleanRef = useRef<CleanFlash | null>(clean);
   const noPose = useRef({ since: 0, flagged: false });
   const dim = useRef(new Animated.Value(dimmed ? DIMMED_OPACITY : 1)).current;
   const highlight = useMemo(() => highlightFor(fault?.ids ?? []), [fault]);
   const highlightRef = useRef(highlight);
 
+  // A React commit may re-apply the JSX props (empty d, opacity 0, default widths) over what setNativeProps wrote
+  // (unverified on Fabric): forget what was written after every render so the next tick rewrites everything.
+  useLayoutEffect(() => {
+    written.current = unwritten();
+  });
+
+  // Rep events arrive in real time but the skeleton is drawn a playout delay late: start the flashes then, so rose
+  // and mint land on the drawn Rep rather than before it.
   useEffect(() => {
     faultRef.current = fault;
     highlightRef.current = highlight;
-    faultAt.current = fault ? Date.now() : 0;
-  }, [fault, highlight]);
+    faultAt.current = fault ? Date.now() + buffer.playoutDelayMs() : 0;
+  }, [fault, highlight, buffer]);
+
+  useEffect(() => {
+    cleanRef.current = clean;
+    cleanAt.current = clean ? Date.now() + buffer.playoutDelayMs() : 0;
+  }, [clean, buffer]);
 
   useEffect(() => {
     Animated.timing(dim, { toValue: dimmed ? DIMMED_OPACITY : 1, duration: reduceMotion ? 0 : 320, useNativeDriver: true }).start();
@@ -67,89 +157,138 @@ export function SkeletonStage({ buffer, width, height, fault, dimmed, onNoPoseCh
   useEffect(() => {
     let frame = 0;
     let last = 0;
-    let lastFlash = -1; // never equal to a real opacity, so the first frame writes all three fault layers
+    const ctx = { viewport: { width, height }, aspect, reduceMotion };
+    /** Device px per design px: sizes are chosen in design px, drawn in device px. */
+    const unit = s(1000) / 1000;
+    // Sizes are recomputed only when the (hysteresis-held) figure height changes.
+    let sizedFor: number | null = null;
+    let designSizes = DEFAULT_SIZES;
+    let deviceSizes = toDevice(DEFAULT_SIZES);
     // react-native-svg's web build expects setNativeProps({ style: props }); native takes the props directly.
     const set = (key: string, props: object) =>
       handles.current[key]?.setNativeProps?.(Platform.OS === 'web' ? { style: props } : props);
+
+    // Sizes move in 2 px steps, so the five bone widths are only rewritten when the step changes.
+    const writeWidths = (sizes: SkeletonSizes) => {
+      if (sizes.bone === written.current.bone) return;
+      written.current.bone = sizes.bone;
+      const widths = strokeWidths(sizes);
+      STROKED.forEach((key) => set(key, { strokeWidth: s(widths[key]) }));
+    };
+
+    const writePaths = (next: SkeletonPaths) => {
+      const w = written.current;
+      LAYERS.forEach((key) => {
+        if (!w.paths || next[key] !== w.paths[key]) set(key, { d: next[key] });
+      });
+      w.paths = next;
+      const head = next.headVisible ? 1 : DIM_LAYER_OPACITY;
+      if (head !== w.head) {
+        w.head = head;
+        set('head', { opacity: head });
+      }
+    };
+
+    // The flash layers only change while a flash runs (about 1.6 s per faulty Rep, 0.8 s per clean one).
+    const writeFlashes = (flash: number, pulse: number) => {
+      const w = written.current;
+      if (flash !== w.flash) {
+        w.flash = flash;
+        set('faultHalo', { opacity: FAULT_HALO_OPACITY * flash });
+        set('faultBones', { opacity: flash });
+        set('faultJointRing', { opacity: flash });
+      }
+      if (pulse !== w.pulse) {
+        w.pulse = pulse;
+        set('cleanPulse', { opacity: pulse });
+      }
+    };
+
+    // "We can't see you": every landmark below 0.5 for 2 s.
+    const trackNoPose = (pose: readonly Landmark[], now: number) => {
+      const state = noPose.current;
+      if (!allLowVisibility(pose)) {
+        state.since = 0;
+        if (state.flagged) {
+          state.flagged = false;
+          onNoPoseChange?.(false);
+        }
+        return;
+      }
+      if (state.since === 0) state.since = now;
+      if (!state.flagged && now - state.since >= NO_POSE_AFTER_MS) {
+        state.flagged = true;
+        onNoPoseChange?.(true);
+      }
+    };
 
     const tick = () => {
       frame = requestAnimationFrame(tick);
       const now = Date.now();
       if (now - last < MIN_FRAME_GAP_MS) return;
       last = now;
+      const started = clock();
 
-      const pose = reduceMotion ? buffer.latest() : buffer.sample(now);
-      if (!pose) return;
-      if (stats) stats.current.renders += 1;
+      const sampled = reduceMotion ? buffer.latestFrame() : buffer.sampleFrame(now);
+      if (!sampled) return;
+      const { pose } = sampled;
+      visible.current = visibilityHysteresis(visible.current, pose);
+      framing.current = stepFraming(framing.current, poseBounds(pose, aspect), now, ctx);
+      figure.current = stableFigurePx(figure.current, figureHeightPx(framing.current));
+      if (figure.current !== sizedFor) {
+        sizedFor = figure.current;
+        designSizes = sizedFor === null ? DEFAULT_SIZES : skeletonSizes(sizedFor / unit);
+        deviceSizes = toDevice(designSizes);
+      }
+      writeWidths(designSizes);
 
       const flash = faultRef.current ? faultOpacity(now - faultAt.current) : 0;
-      const sel = flash > 0 ? highlightRef.current : { bones: [], joints: [] };
-      const next = buildSkeletonPaths(pose, { width, height }, sel, s(36));
-      const prev = lastPaths.current;
-      (Object.keys(next) as (keyof SkeletonPaths)[]).forEach((key) => {
-        if (key === 'headVisible') return;
-        if (next[key as LayerKey] !== prev[key as LayerKey]) set(key, { d: next[key as LayerKey] });
-      });
-      if (next.headVisible !== prev.headVisible) set('head', { opacity: next.headVisible ? 1 : 0.25 });
-      lastPaths.current = next;
-      // The fault layers only change while a Fault is flashing (about 1.6 s per Rep): skip three native prop
-      // writes per frame the rest of the time.
-      if (flash !== lastFlash) {
-        lastFlash = flash;
-        set('faultHalo', { opacity: 0.35 * flash });
-        set('faultBones', { opacity: flash });
-        set('faultJointRing', { opacity: flash });
-      }
+      const pulse = cleanRef.current ? cleanPulseOpacity(now - cleanAt.current) : 0;
+      const emphasis = flash > 0 ? highlightRef.current : pulse > 0 ? CLEAN_EMPHASIS : NO_EMPHASIS;
+      writePaths(buildSkeletonPaths(pose, projectionFor(framing.current), emphasis, deviceSizes, visible.current));
+      writeFlashes(flash, pulse);
+      trackNoPose(pose, now);
 
-      // "We can't see you": every landmark below 0.5 for 2 s.
-      const lost = allLowVisibility(pose);
-      const state = noPose.current;
-      if (!lost) {
-        state.since = 0;
-        if (state.flagged) {
-          state.flagged = false;
-          onNoPoseChange?.(false);
-        }
-      } else {
-        if (state.since === 0) state.since = now;
-        if (!state.flagged && now - state.since >= NO_POSE_AFTER_MS) {
-          state.flagged = true;
-          onNoPoseChange?.(true);
-        }
+      if (stats) {
+        const tickMs = clock() - started;
+        const st = stats.current;
+        st.renders += 1;
+        st.tickMs.sum += tickMs;
+        st.tickMs.max = Math.max(st.tickMs.max, tickMs);
+        st.zoom = zoomRatio(framing.current);
       }
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [buffer, width, height, reduceMotion, onNoPoseChange, stats]);
+  }, [buffer, width, height, aspect, reduceMotion, onNoPoseChange, stats]);
 
   const bind = (key: string) => (ref: unknown) => {
     handles.current[key] = ref as PathHandle;
   };
   const box: ViewStyle = { width, height };
-  const corner = s(BRACKET);
-  const bracket = { position: 'absolute' as const, width: corner, height: corner, borderColor: color.textMuted };
-  const bw = s(3);
+  const widths = strokeWidths(DEFAULT_SIZES);
+  const bone = { strokeLinecap: 'round' as const, fill: 'none' };
+  const joint = { fill: color.text, stroke: color.stage, strokeWidth: s(DEFAULT_SIZES.outline) };
 
   return (
     <View style={box} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       <Animated.View style={[StyleSheet.absoluteFill, { opacity: dim }]}>
         <Svg width={width} height={height}>
-          <Path ref={bind('faultHalo')} d="" stroke={color.scorePoor} strokeWidth={s(36)} strokeLinecap="round" fill="none" opacity={0} />
-          <Path ref={bind('bonesDim')} d="" stroke={color.accentSoft} strokeWidth={s(14)} strokeLinecap="round" fill="none" opacity={0.25} />
-          <Path ref={bind('bones')} d="" stroke={color.accentSoft} strokeWidth={s(14)} strokeLinecap="round" fill="none" />
-          <Path ref={bind('faultBones')} d="" stroke={color.scorePoor} strokeWidth={s(20)} strokeLinecap="round" fill="none" opacity={0} />
-          <Path ref={bind('faultJointRing')} d="" stroke={color.scorePoor} strokeWidth={s(50)} strokeLinecap="round" fill="none" opacity={0} />
-          <Path ref={bind('jointOutline')} d="" stroke={color.stage} strokeWidth={s(38)} strokeLinecap="round" fill="none" />
-          <Path ref={bind('jointsDim')} d="" stroke={color.text} strokeWidth={s(30)} strokeLinecap="round" fill="none" opacity={0.25} />
-          <Path ref={bind('joints')} d="" stroke={color.text} strokeWidth={s(30)} strokeLinecap="round" fill="none" />
-          <Path ref={bind('head')} d="" stroke={color.accentSoft} strokeWidth={s(8)} fill="none" />
+          <Path ref={bind('faultHalo')} d="" stroke={color.scorePoor} strokeWidth={s(widths.faultHalo)} {...bone} opacity={0} />
+          <Path ref={bind('bonesDim')} d="" stroke={color.accentSoft} strokeWidth={s(widths.bonesDim)} {...bone} opacity={DIM_LAYER_OPACITY} />
+          <Path ref={bind('bones')} d="" stroke={color.accentSoft} strokeWidth={s(widths.bones)} {...bone} />
+          <Path ref={bind('faultBones')} d="" stroke={color.scorePoor} strokeWidth={s(widths.faultBones)} {...bone} opacity={0} />
+          {/* Mint is reserved for Form Score; here it means the same thing: that Rep had good form. */}
+          <Path ref={bind('cleanPulse')} d="" stroke={color.scoreGood} strokeWidth={s(widths.cleanPulse)} {...bone} opacity={0} />
+          <Path ref={bind('faultJointRing')} d="" fill={color.scorePoor} opacity={0} />
+          <Path ref={bind('jointsDim')} d="" {...joint} opacity={DIM_LAYER_OPACITY} />
+          <Path ref={bind('joints')} d="" {...joint} />
+          <Path ref={bind('head')} d="" fill={color.accentSoft} />
         </Svg>
       </Animated.View>
-      {/* Camera-frame corner brackets */}
-      <View style={[bracket, { top: 0, left: 0, borderTopWidth: bw, borderLeftWidth: bw }]} />
-      <View style={[bracket, { top: 0, right: 0, borderTopWidth: bw, borderRightWidth: bw }]} />
-      <View style={[bracket, { bottom: 0, left: 0, borderBottomWidth: bw, borderLeftWidth: bw }]} />
-      <View style={[bracket, { bottom: 0, right: 0, borderBottomWidth: bw, borderRightWidth: bw }]} />
     </View>
   );
 }
+
+/** Memoised: LiveScreen re-renders twice a second, and every render of this component forces a full native rewrite. */
+export const SkeletonStage = memo(SkeletonStageView);

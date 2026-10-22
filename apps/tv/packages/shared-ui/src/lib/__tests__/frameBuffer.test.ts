@@ -1,10 +1,13 @@
 import { FrameBuffer, looksLikeEpochMs, type TimedPose } from '../frameBuffer';
-import { encodeFrame, KEYPOINT_COUNT } from '../../vendor/protocol';
+import { encodeFrame, KEYPOINT_COUNT, type Motion } from '../../vendor/protocol';
 
 const pose = (x: number, y = 0.5, visibility = 1) =>
   Array.from({ length: KEYPOINT_COUNT }, () => ({ x, y, visibility }));
 
 const frame = (t: number, x: number): TimedPose => ({ t, pose: pose(x) });
+const moving = (t: number, x: number, motion: Motion): TimedPose => ({ t, pose: pose(x), motion });
+const rest = (depth: number): Motion => ({ depth, phase: 'rest', target: 0.4 });
+const active = (depth: number): Motion => ({ depth, phase: 'active', target: 0.5 });
 
 /** Frames at 15 fps (66 ms apart) whose x equals their index, so interpolation is easy to assert. */
 const burst = (startT: number, count: number, startX: number): TimedPose[] =>
@@ -112,6 +115,63 @@ describe('FrameBuffer', () => {
     const end = buffer.sample(5000)!;
     expect(end[0]!.x).toBeCloseTo(0.5, 5);
     expect(end[15]!.x).toBeCloseTo(0.7, 5);
+  });
+
+  it('keeps live motion: depth interpolated, phase and target from the nearest frame', () => {
+    const buffer = new FrameBuffer({ minDelayMs: 0, marginMs: 0, smoothing: false });
+    buffer.push([moving(100, 0, rest(0.2)), moving(200, 1, active(0.6))], 1000); // offset 800
+    const early = buffer.sampleFrame(920)!; // playout 120: 20% of the way
+    expect(early.pose[0]!.x).toBeCloseTo(0.2, 5);
+    expect(early.motion!.depth).toBeCloseTo(0.28, 5);
+    expect(early.motion).toMatchObject({ phase: 'rest', target: 0.4 });
+    const late = buffer.sampleFrame(975)!; // playout 175: 75% of the way
+    expect(late.motion!.depth).toBeCloseTo(0.5, 5);
+    expect(late.motion).toMatchObject({ phase: 'active', target: 0.5 });
+  });
+
+  it("gives null motion when frames lack it, and the nearest frame's when only one side has it", () => {
+    const plain = new FrameBuffer({ minDelayMs: 0, marginMs: 0, smoothing: false });
+    plain.push([frame(100, 0), frame(200, 1)], 1000);
+    expect(plain.sampleFrame(950)!.motion).toBeNull();
+
+    const mixed = new FrameBuffer({ minDelayMs: 0, marginMs: 0, smoothing: false });
+    mixed.push([moving(100, 0, rest(0.2)), frame(200, 1)], 1000);
+    expect(mixed.sampleFrame(925)!.motion).toEqual(rest(0.2)); // playout 125: nearest is t=100
+    expect(mixed.sampleFrame(975)!.motion).toBeNull(); // playout 175: nearest is t=200
+  });
+
+  it('holds the newest motion when starved; sample() delegates and counts each starved sample once', () => {
+    const buffer = new FrameBuffer({ minDelayMs: 0, marginMs: 0, smoothing: false });
+    buffer.push([moving(100, 0, rest(0.1)), moving(200, 1, active(0.9))], 1000);
+    expect(buffer.sampleFrame(5000)!.motion).toEqual(active(0.9));
+    expect(buffer.stats().starvedSamples).toBe(1);
+    expect(buffer.sample(5000)![0]!.x).toBeCloseTo(1, 5);
+    expect(buffer.stats().starvedSamples).toBe(2);
+  });
+
+  it('returns the newest frame with its motion for reduced motion', () => {
+    const buffer = new FrameBuffer({ smoothing: false });
+    expect(buffer.latestFrame()).toBeNull();
+    buffer.push([moving(200, 1, active(0.7)), moving(100, 0, rest(0))], 1000);
+    expect(buffer.latestFrame()).toEqual({ pose: pose(1), motion: active(0.7) });
+    expect(buffer.latest()).toEqual(pose(1));
+  });
+
+  it('keeps the motion of a wire PoseBatch', () => {
+    const buffer = new FrameBuffer({ minDelayMs: 0, marginMs: 0, smoothing: false });
+    buffer.pushBatch(
+      { type: 'pose', frames: [encodeFrame(pose(0.25), 10, active(0.333)), encodeFrame(pose(0.75), 20)] },
+      100,
+    );
+    expect(buffer.sampleFrame(0)!.motion).toEqual(active(0.33)); // rounded on the wire
+  });
+
+  it('exposes the playout delay so flashes can wait for the drawn Rep', () => {
+    const buffer = new FrameBuffer({ minDelayMs: 150, marginMs: 40 });
+    expect(buffer.playoutDelayMs()).toBe(150);
+    buffer.push(burst(0, 3, 0), 1000);
+    buffer.push(burst(200, 3, 3), 1200); // 200 ms gap -> 240
+    expect(buffer.playoutDelayMs()).toBe(240);
   });
 
   it('reset clears all state', () => {

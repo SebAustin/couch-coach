@@ -1,6 +1,6 @@
 import { formatCountdown, lastSeenLabel, newestSeenIndex } from '../format';
 import { faultLabel, exerciseLabel } from '../labels';
-import { faultOpacity, highlightFor } from '../faultHighlight';
+import { cleanPulseOpacity, faultOpacity, highlightFor } from '../faultHighlight';
 import { smoothPose, lerpPose } from '../smoothing';
 
 describe('format', () => {
@@ -48,6 +48,23 @@ describe('faultHighlight', () => {
     expect(faultOpacity(1400)).toBeCloseTo(0.5, 5);
     expect(faultOpacity(1600)).toBe(0);
     expect(faultOpacity(-5)).toBe(0);
+  });
+
+  it('pulses a clean Rep once: up in 120 ms, held to 360 ms, gone by 840 ms, never above 1', () => {
+    expect(cleanPulseOpacity(-5)).toBe(0);
+    expect(cleanPulseOpacity(0)).toBe(0);
+    expect(cleanPulseOpacity(60)).toBeCloseTo(0.5, 5);
+    expect(cleanPulseOpacity(120)).toBe(1);
+    expect(cleanPulseOpacity(360)).toBe(1);
+    expect(cleanPulseOpacity(600)).toBeCloseTo(0.5, 5);
+    expect(cleanPulseOpacity(840)).toBe(0);
+    const samples = Array.from({ length: 121 }, (_, i) => cleanPulseOpacity(i * 10));
+    samples.forEach((o) => expect(o).toBeGreaterThanOrEqual(0));
+    samples.forEach((o) => expect(o).toBeLessThanOrEqual(1));
+    // One pulse: never rises again once it has started to fall.
+    const peak = samples.indexOf(1);
+    samples.slice(peak).forEach((o, i, rest) => i > 0 && expect(o).toBeLessThanOrEqual(rest[i - 1]!));
+    samples.slice(0, peak).forEach((o, i, rise) => i > 0 && expect(o).toBeGreaterThanOrEqual(rise[i - 1]!));
   });
 });
 
