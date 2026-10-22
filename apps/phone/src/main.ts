@@ -7,7 +7,7 @@ import './styles/app.css';
 import { cameraAlreadyGranted } from './camera';
 import { loadClientConfig } from './config';
 import { createController } from './controller';
-import { parseSessionParams } from './logic/session-params';
+import { parseModelVariant, parseSessionParams } from './logic/session-params';
 
 if (new URLSearchParams(window.location.search).get('debug') === '1') {
   document.documentElement.classList.add('dev-tools');
@@ -20,7 +20,10 @@ function el(id: string): HTMLElement {
 }
 
 async function boot(): Promise<void> {
-  const controller = createController({ ui: el('ui'), stage: el('stage'), chip: el('chip'), notice: el('notice'), debug: el('debug') });
+  const controller = createController(
+    { ui: el('ui'), stage: el('stage'), chip: el('chip'), notice: el('notice'), debug: el('debug') },
+    { model: parseModelVariant(location.search) },
+  );
   controller.show('boot');
   const params = parseSessionParams(location.search);
   if (!params.ok) {

@@ -1,4 +1,5 @@
 import { h } from '../dom';
+import type { FramingIssue } from '../logic/framing';
 import type { ViewFactory, Vm } from './types';
 import { announcer, BAND_LABEL, button, EXERCISE_LABEL, icon, prefersReducedMotion, scoreBand } from './ui';
 
@@ -7,7 +8,8 @@ const BUMP_MS = 220;
 const FRAMING_TEXT = {
   step_back: 'Step back: I need to see you from head to feet to count Reps.',
   no_person: 'I can’t see you. Step into the camera’s view.',
-} as const;
+  move_closer: 'Come closer: fill most of the screen, head to feet.',
+} as const satisfies Record<FramingIssue, string>;
 /** Read once when the warning opens. The visible countdown is aria-hidden so it never re-announces each second. */
 const IDLE_ANNOUNCEMENT = 'No movement. Ending Set soon. Tap Keep going to continue.';
 

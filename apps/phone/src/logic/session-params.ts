@@ -17,3 +17,11 @@ export function parseSessionParams(search: string): SessionParams {
   const memberId = (params.get('m') ?? '').slice(0, 64) || UNKNOWN_MEMBER;
   return { ok: true, sessionId, token, memberId };
 }
+
+/** Which Pose Landmarker to run: `lite` (default, fastest) or `full` (more accurate landmarks, more GPU per frame). */
+export type ModelVariant = 'lite' | 'full';
+
+/** `model=full` in the page URL opts into the full model; anything else keeps lite. */
+export function parseModelVariant(search: string): ModelVariant {
+  return new URLSearchParams(search).get('model') === 'full' ? 'full' : 'lite';
+}

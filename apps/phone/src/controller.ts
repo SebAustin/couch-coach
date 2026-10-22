@@ -1,6 +1,6 @@
 import type { PoseLandmarker } from '@mediapipe/tasks-vision';
 import { createCounter } from 'pose-reps';
-import { encodeFrame, type ClientConfig, type CoachMessage, type Exercise, type PhoneEvent } from '@couch-coach/protocol';
+import type { ClientConfig, CoachMessage, Exercise, PhoneEvent } from '@couch-coach/protocol';
 import { closeCamera, createWakeLock, openCamera, videoTrack, type Facing } from './camera';
 import { clear, h } from './dom';
 import { createEngine, type DetectedPose, type Engine } from './engine';
@@ -9,7 +9,9 @@ import { createFrameBatcher } from './logic/frame-batcher';
 import { createFrameRing } from './logic/frame-ring';
 import { createFramingTracker } from './logic/framing';
 import { idleStatus } from './logic/idle';
+import { describeMotion, processPose } from './logic/live-frame';
 import { createPresenceTracker } from './logic/presence';
+import type { ModelVariant } from './logic/session-params';
 import { createSetRunner, type SetRunner } from './logic/set-runner';
 import { button } from './views/ui';
 import { createSessionNet, type SessionNet } from './net';
@@ -54,14 +56,20 @@ const INITIAL_VM: Vm = {
   wakeLock: 'ok',
 };
 
-/** Owns the Session: camera, pose engine, Set lifecycle and the wire. Views only render the Vm. */
-export function createController(root: {
-  ui: HTMLElement;
-  stage: HTMLElement;
-  chip: HTMLElement;
-  notice: HTMLElement;
-  debug: HTMLElement;
-}) {
+/**
+ * Owns the Session: camera, pose engine, Set lifecycle and the wire. Views only render the Vm.
+ * `model` picks the Pose Landmarker (`?model=full` in the URL; lite by default).
+ */
+export function createController(
+  root: {
+    ui: HTMLElement;
+    stage: HTMLElement;
+    chip: HTMLElement;
+    notice: HTMLElement;
+    debug: HTMLElement;
+  },
+  { model = 'lite' }: { model?: ModelVariant } = {},
+) {
   let vm: Vm = INITIAL_VM;
   let view: View | null = null;
   let mounted: Vm['screen'] | null = null;
@@ -158,7 +166,14 @@ export function createController(root: {
 
   function refreshDebug(): void {
     const latency = publishLatencyMs === null ? '--' : `${Math.round(publishLatencyMs)} ms`;
-    root.debug.textContent = `FPS ${engine?.fps() ?? 0} · publish ${latency} · ${delegate || 'no model'} · ${vm.online ? 'online' : 'offline'}`;
+    const motion = runner && !vm.paused ? runner.motion() : undefined;
+    root.debug.textContent = [
+      `FPS ${engine?.fps() ?? 0}`,
+      `publish ${latency}`,
+      delegate ? `${delegate} ${model}` : 'no model',
+      vm.online ? 'online' : 'offline',
+      ...(motion ? [describeMotion(motion)] : []),
+    ].join(' · ');
   }
 
   // ---- wire ---------------------------------------------------------------
@@ -216,20 +231,15 @@ export function createController(root: {
     trackFraming(detected);
     if (!detected) return;
     presence.seen(detected.t);
-    const frame = encodeFrame(detected.pose, detected.t);
+    // The counter runs before encoding so the frame carries the TV's depth gauge state for this very frame.
+    const active = runner && !vm.paused ? runner : null;
+    const { frame, rep } = processPose(detected, active);
     ring.add(frame);
     batcher.add(frame);
-    if (!runner || vm.paused) return;
-    let rep: PhoneEvent | null = null;
-    try {
-      rep = runner.push(detected.pose, detected.mono, detected.t);
-    } catch (err) {
-      console.warn('rep counter rejected a frame', err);
-    }
-    if (!rep) return;
+    if (!rep || !active) return;
     activityAt = detected.t;
     emit(rep);
-    setVm({ reps: runner.repCount(), score: runner.score(), idleSecondsLeft: null });
+    setVm({ reps: active.repCount(), score: active.score(), idleSecondsLeft: null });
   }
 
   function ensureEngine(): void {
@@ -242,7 +252,7 @@ export function createController(root: {
     if (landmarker) return;
     setVm({ modelState: 'loading' });
     try {
-      const loaded = await loadPoseLandmarker();
+      const loaded = await loadPoseLandmarker(model);
       landmarker = loaded.landmarker;
       delegate = loaded.delegate;
       ensureEngine();

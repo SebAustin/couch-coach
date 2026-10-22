@@ -203,4 +203,36 @@ describe('set runner', () => {
     const runner = createSetRunner({ exercise: 'jumping_jack', setIndex: 1, startedAtMs: 500, counter: scripted([]) });
     expect(runner.lastRepAtMs()).toBe(500);
   });
+
+  describe('motion()', () => {
+    const withState = (state: { depth: number; phase: 'calibrating' | 'rest' | 'active' | 'lost'; target: number }) =>
+      createSetRunner({
+        exercise: 'squat',
+        setIndex: 1,
+        startedAtMs: 0,
+        // The full pose-reps CounterState carries more fields; only depth, phase and target go on the wire.
+        counter: { push: () => null, state: () => ({ ...state, rest: 0.2, peak: 0.5, reps: 3, tMs: 1_000 }) },
+      });
+
+    it("reports the counter's live depth, phase and target", () => {
+      expect(withState({ depth: 0.42, phase: 'active', target: 0.6 }).motion()).toEqual({
+        depth: 0.42,
+        phase: 'active',
+        target: 0.6,
+      });
+    });
+
+    it('clamps depth and target into 0..1 so the frame always validates', () => {
+      expect(withState({ depth: 1.3, phase: 'active', target: -0.2 }).motion()).toEqual({ depth: 1, phase: 'active', target: 0 });
+      expect(withState({ depth: Number.NaN, phase: 'calibrating', target: 0.6 }).motion()).toEqual({
+        depth: 0,
+        phase: 'calibrating',
+        target: 0.6,
+      });
+    });
+
+    it('is undefined when the counter has no live state', () => {
+      expect(createSetRunner({ exercise: 'squat', setIndex: 1, startedAtMs: 0, counter: scripted([]) }).motion()).toBeUndefined();
+    });
+  });
 });
